@@ -904,19 +904,35 @@
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
     const h = data[0];
-    // Detect columns — order patterns from most specific to least specific
-    const kwi   = detectCol(h, ['keyword','query','search term','key phrase','term','phrase']);
-    const voli  = detectCol(h, ['volume','search volume','monthly volume','monthly searches','avg. monthly searches','searches']);
-    const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
-    const tpi   = detectCol(h, ['traffic potential','potential traffic','tp']);
-    const growI = detectCol(h, ['growth %','12 month growth','12mo growth','growth','yoy']);
-    const foreI = detectCol(h, ['12mo forecast','12 month forecast','forecast','projected']);
+    // Detect columns — most-specific patterns first to avoid false matches
+    const kwi   = detectCol(h, ['keyword','keywords','query','search term','key phrase','term','phrase','palavra-chave','palabra clave','mot-clé','schlüsselwort']);
+    const voli  = detectCol(h, ['volume','search volume','monthly volume','monthly searches','avg. monthly searches','searches','search vol','vol.','vol']);
+    const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty','dificuldade','dificultad']);
+    const tpi   = detectCol(h, ['traffic potential','potential traffic','tp','tráfego potencial']);
+    const growI = detectCol(h, ['growth %','12 month growth','12mo growth','growth','yoy','crescimento']);
+    const foreI = detectCol(h, ['12mo forecast','12 month forecast','forecast','projected','previsão']);
     const econI = detectCol(h, ['economic impact','economic','revenue impact','value']);
-    const posI  = detectCol(h, ['avg. position','avg position','average position','current position','position','rank','ranking']);
+    const posI  = detectCol(h, ['avg. position','avg position','average position','current position','position','rank','ranking','posição','posicion']);
     const compI = detectCol(h, ['competitor','competition','competing url','competitor url']);
 
     // Fallback: if keyword col not found, use col 0 (most keyword exports put keyword first)
-    const kwCol = kwi >= 0 ? kwi : 0;
+    let kwCol = kwi >= 0 ? kwi : 0;
+
+    // Sanity-check: if col 0 values look numeric (would mean we hit a KD/Volume col),
+    // scan all columns for the one with the most text-like (non-numeric) values.
+    if (kwi < 0) {
+      const sample = data.slice(1, Math.min(6, data.length));
+      let bestCol = 0, bestTextScore = -1;
+      for (let ci = 0; ci < h.length; ci++) {
+        const textScore = sample.reduce((s, r) => {
+          const v = String(r[ci] || '').trim();
+          return s + (isNaN(parseFloat(v)) && v.length > 2 ? 1 : 0);
+        }, 0);
+        if (textScore > bestTextScore) { bestTextScore = textScore; bestCol = ci; }
+      }
+      kwCol = bestCol;
+      console.log(`[ECB] Keyword col not found by header — value-heuristic picked col ${kwCol}`);
+    }
 
     return data.slice(1)
       .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
@@ -937,15 +953,31 @@
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
     const h = data[0];
-    const urli = detectCol(h, ['url','page url','address','page','landing page','full url']);
+    let urli = detectCol(h, ['url','page url','address','page','landing page','full url','top pages','pages','path']);
     const impi = detectCol(h, ['impressions','total impressions','impression']);
-    const sesi = detectCol(h, ['sessions','visits','clicks','total clicks','organic sessions']);
+    const sesi = detectCol(h, ['sessions','visits','clicks','total clicks','organic sessions','organic clicks']);
     const bki  = detectCol(h, ['referring domains','backlinks','total backlinks','links','rd']);
     const posi = detectCol(h, ['avg. position','avg position','average position','position','rank','ranking']);
     const wci  = detectCol(h, ['word count','words','wordcount','word_count']);
-    const kwi  = detectCol(h, ['top keyword','primary keyword','target keyword','keyword','main keyword']);
+    const kwi  = detectCol(h, ['top keyword','primary keyword','target keyword','keyword','main keyword','top query']);
 
-    const urlCol = urli >= 0 ? urli : 0;
+    // If header detection failed, scan the first data rows to find the column whose
+    // values look most like URLs (contain '/' or '.') — handles non-English headers.
+    if (urli < 0) {
+      const sample = data.slice(1, Math.min(6, data.length));
+      let bestCol = 0, bestScore = -1;
+      for (let ci = 0; ci < h.length; ci++) {
+        const score = sample.reduce((s, r) => {
+          const v = String(r[ci] || '');
+          return s + (v.includes('/') ? 2 : 0) + (v.includes('.') ? 1 : 0) + (v.startsWith('http') ? 3 : 0);
+        }, 0);
+        if (score > bestScore) { bestScore = score; bestCol = ci; }
+      }
+      urli = bestScore > 0 ? bestCol : 0;
+      console.log(`[ECB] WQA URL col not found by header — value-heuristic picked col ${urli} (score ${bestScore})`);
+    }
+
+    const urlCol = urli;
 
     return data.slice(1)
       .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
@@ -1554,9 +1586,24 @@
       const loaded = !!f[key];
       const fname  = loaded ? f[key].name : '';
       const count  = state.parsed[key] ? state.parsed[key].length : null;
+      let previewHtml = '';
+      if (loaded && count > 0) {
+        const first = state.parsed[key][0];
+        let preview = '';
+        if (key === 'keywords') {
+          preview = `<em>${escapeHtml(first.keyword || '—')}</em> · KD ${first.kd ?? '—'} · Vol ${first.volume ?? '—'}`;
+        } else if (key === 'wqa') {
+          preview = `<em>${escapeHtml(first.url || '—')}</em> · Pos ${first.position ?? '—'} · Impr ${first.impressions ?? '—'}`;
+        } else if (key === 'ahrefs') {
+          preview = `<em>${escapeHtml(first.keyword || '—')}</em> · KD ${first.kd ?? '—'} · Vol ${first.volume ?? '—'}`;
+        } else if (key === 'personas') {
+          preview = `<em>${escapeHtml(first.name || '—')}</em>`;
+        }
+        if (preview) previewHtml = `<div class="upload-filename" style="opacity:0.7;font-size:0.72rem">Preview: ${preview}</div>`;
+      }
       const countHtml = loaded && count !== null
         ? count > 0
-          ? `<div class="upload-filename">✓ ${escapeHtml(fname)} — <strong>${count} rows</strong> parsed</div>`
+          ? `<div class="upload-filename">✓ ${escapeHtml(fname)} — <strong>${count} rows</strong> parsed</div>${previewHtml}`
           : `<div class="upload-filename" style="color:var(--amber)">⚠ ${escapeHtml(fname)} — 0 rows detected. Check column headers match expected format.</div>`
         : '';
       return `<div class="upload-zone ${loaded?'loaded':''}" id="zone-${key}"
@@ -1926,16 +1973,43 @@
     goToStep(2);
   }
 
+  /* Read a file as text, auto-detecting UTF-16 LE/BE and rejecting binary Office formats. */
+  function readFileText(file, onText) {
+    const sniff = new FileReader();
+    sniff.onload = e => {
+      const bytes = new Uint8Array(e.target.result);
+      // Reject XLSX (PK magic 50 4B) and XLS (D0 CF magic)
+      if ((bytes[0] === 0x50 && bytes[1] === 0x4B) ||
+          (bytes[0] === 0xD0 && bytes[1] === 0xCF)) {
+        toast('⚠ Excel (.xlsx/.xls) files are not supported. Re-export as CSV (UTF-8) from your tool.', 8000);
+        onText(null);
+        return;
+      }
+      // Detect UTF-16 BOM (FF FE = LE, FE FF = BE)
+      const enc = (bytes[0] === 0xFF && bytes[1] === 0xFE) ? 'UTF-16LE'
+                : (bytes[0] === 0xFE && bytes[1] === 0xFF) ? 'UTF-16BE'
+                : 'UTF-8';
+      const reader = new FileReader();
+      reader.onload = ev => {
+        let text = ev.target.result;
+        // Strip byte-order mark if present
+        if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+        onText(text);
+      };
+      reader.readAsText(file, enc);
+    };
+    sniff.readAsArrayBuffer(file.slice(0, 4));
+  }
+
   function handleFileInput(event, key) {
     const file = event.target.files[0];
     if (!file) return;
     state.files[key] = file;
-    const file_reader = new FileReader();
-    file_reader.onload = e => {
-      parseFile(key, e.target.result);
+    readFileText(file, text => {
+      if (text === null) { state.files[key] = null; renderApp(); return; }
+      parseFile(key, text);
       renderApp();
-    };
-    file_reader.readAsText(file);
+    });
   }
 
   function handleDragOver(event, key) {
@@ -1953,9 +2027,11 @@
     const file = event.dataTransfer.files[0];
     if (!file) return;
     state.files[key] = file;
-    const fr = new FileReader();
-    fr.onload = e => { parseFile(key, e.target.result); renderApp(); };
-    fr.readAsText(file);
+    readFileText(file, text => {
+      if (text === null) { state.files[key] = null; renderApp(); return; }
+      parseFile(key, text);
+      renderApp();
+    });
   }
 
   function parseFile(key, text) {
