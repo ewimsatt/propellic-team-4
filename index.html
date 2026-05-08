@@ -860,81 +860,132 @@
   /* ════════════════════════════════════════════════════
      CSV PARSING  — smart column detection
   ════════════════════════════════════════════════════ */
+
+  // Exact-first matching: prevents "Keyword Difficulty" stealing the keyword column
   function detectCol(headers, patterns) {
-    const lower = headers.map(h => (h||'').toLowerCase().trim());
+    const lower = headers.map(h => (h||'').toLowerCase().trim().replace(/['"]/g,''));
+
+    // Pass 1: exact match
     for (const p of patterns) {
-      const i = lower.findIndex(h => h === p || h.includes(p));
+      const i = lower.indexOf(p);
+      if (i !== -1) return i;
+    }
+    // Pass 2: header starts with pattern (e.g. "volume (us)" → "volume")
+    for (const p of patterns) {
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const i = lower.findIndex(h => new RegExp('^' + esc + '(\\s|[^a-z]|$)').test(h));
+      if (i !== -1) return i;
+    }
+    // Pass 3: pattern appears as whole word(s) anywhere (only for patterns ≥ 4 chars)
+    for (const p of patterns) {
+      if (p.length < 4) continue;
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const i = lower.findIndex(h => new RegExp('(^|\\s)' + esc + '(\\s|$)').test(h));
+      if (i !== -1) return i;
+    }
+    // Pass 4: loose contains for long patterns only (≥ 6 chars)
+    for (const p of patterns) {
+      if (p.length < 6) continue;
+      const i = lower.findIndex(h => h.includes(p));
       if (i !== -1) return i;
     }
     return -1;
+  }
+
+  // Strip commas, currency symbols, % from numeric strings like "1,200" or "$45.00"
+  function cleanNum(str) {
+    if (str === null || str === undefined || str === '') return null;
+    const cleaned = String(str).replace(/[,$€£¥\s%"']/g,'').trim();
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? null : n;
   }
 
   function parseKeywords(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
     const h = data[0];
-    const kwi    = detectCol(h, ['keyword','query','search term','term','key phrase']);
-    const voli   = detectCol(h, ['volume','search volume','monthly volume','monthly searches','avg. monthly searches']);
-    const kdi    = detectCol(h, ['kd','keyword difficulty','difficulty','kd (us)','us kd']);
-    const tpi    = detectCol(h, ['traffic potential','tp','traffic','potential traffic']);
-    const growI  = detectCol(h, ['growth','growth %','12 month growth','12mo growth','yoy']);
-    const foreI  = detectCol(h, ['forecast','12mo forecast','12 month forecast','projected']);
-    const econI  = detectCol(h, ['economic','economic impact','revenue','value']);
-    const posI   = detectCol(h, ['position','rank','avg position','ranking','current position']);
-    return data.slice(1).filter(r => r[kwi]).map(r => ({
-      keyword:         (r[kwi] || '').trim(),
-      volume:          parseFloat(r[voli]) || 0,
-      kd:              parseFloat(r[kdi]) || 50,
-      trafficPotential:parseFloat(r[tpi]) || 0,
-      growth:          parseFloat(r[growI]) || 0,
-      forecast:        parseFloat(r[foreI]) || 0,
-      economic:        parseFloat(r[econI]) || 0,
-      currentPosition: parseFloat(r[posI]) || 0
-    }));
+    // Detect columns — order patterns from most specific to least specific
+    const kwi   = detectCol(h, ['keyword','query','search term','key phrase','term','phrase']);
+    const voli  = detectCol(h, ['volume','search volume','monthly volume','monthly searches','avg. monthly searches','searches']);
+    const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
+    const tpi   = detectCol(h, ['traffic potential','potential traffic','tp']);
+    const growI = detectCol(h, ['growth %','12 month growth','12mo growth','growth','yoy']);
+    const foreI = detectCol(h, ['12mo forecast','12 month forecast','forecast','projected']);
+    const econI = detectCol(h, ['economic impact','economic','revenue impact','value']);
+    const posI  = detectCol(h, ['avg. position','avg position','average position','current position','position','rank','ranking']);
+    const compI = detectCol(h, ['competitor','competition','competing url','competitor url']);
+
+    // Fallback: if keyword col not found, use col 0 (most keyword exports put keyword first)
+    const kwCol = kwi >= 0 ? kwi : 0;
+
+    return data.slice(1)
+      .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
+      .map(r => ({
+        keyword:         String(r[kwCol] || '').trim(),
+        volume:          cleanNum(voli  >= 0 ? r[voli]  : null) ?? 0,
+        kd:              cleanNum(kdi   >= 0 ? r[kdi]   : null) ?? 50,
+        trafficPotential:cleanNum(tpi   >= 0 ? r[tpi]   : null) ?? 0,
+        growth:          cleanNum(growI >= 0 ? r[growI] : null) ?? 0,
+        forecast:        cleanNum(foreI >= 0 ? r[foreI] : null) ?? 0,
+        economic:        cleanNum(econI >= 0 ? r[econI] : null) ?? 0,
+        currentPosition: cleanNum(posI  >= 0 ? r[posI]  : null) ?? 0,
+        competitor:      compI >= 0 ? String(r[compI]||'').trim() : ''
+      }));
   }
 
   function parseWQA(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
     const h = data[0];
-    const urli  = detectCol(h, ['url','page','address','page url','landing page']);
-    const impi  = detectCol(h, ['impressions','impression','total impressions']);
-    const sesi  = detectCol(h, ['sessions','visits','clicks','total clicks']);
-    const bki   = detectCol(h, ['backlinks','links','referring domains','rd','domain rating']);
-    const posi  = detectCol(h, ['position','rank','avg position','ranking','avg. position']);
-    const wci   = detectCol(h, ['word count','words','word_count','wordcount']);
-    return data.slice(1).filter(r => r[urli]).map(r => ({
-      url:         (r[urli] || '').trim(),
-      impressions: parseFloat(r[impi]) || 0,
-      sessions:    parseFloat(r[sesi]) || 0,
-      backlinks:   parseFloat(r[bki])  || 0,
-      position:    parseFloat(r[posi]) || 100,
-      wordCount:   parseFloat(r[wci])  || 0
-    }));
+    const urli = detectCol(h, ['url','page url','address','page','landing page','full url']);
+    const impi = detectCol(h, ['impressions','total impressions','impression']);
+    const sesi = detectCol(h, ['sessions','visits','clicks','total clicks','organic sessions']);
+    const bki  = detectCol(h, ['referring domains','backlinks','total backlinks','links','rd']);
+    const posi = detectCol(h, ['avg. position','avg position','average position','position','rank','ranking']);
+    const wci  = detectCol(h, ['word count','words','wordcount','word_count']);
+    const kwi  = detectCol(h, ['top keyword','primary keyword','target keyword','keyword','main keyword']);
+
+    const urlCol = urli >= 0 ? urli : 0;
+
+    return data.slice(1)
+      .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
+      .map(r => ({
+        url:         String(r[urlCol] || '').trim(),
+        impressions: cleanNum(impi >= 0 ? r[impi] : null) ?? 0,
+        sessions:    cleanNum(sesi >= 0 ? r[sesi] : null) ?? 0,
+        backlinks:   cleanNum(bki  >= 0 ? r[bki]  : null) ?? 0,
+        position:    cleanNum(posi >= 0 ? r[posi] : null) ?? 100,
+        wordCount:   cleanNum(wci  >= 0 ? r[wci]  : null) ?? 0,
+        topKeyword:  kwi >= 0 ? String(r[kwi]||'').trim() : ''
+      }));
   }
 
   function parseContentAnalysis(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
     const h = data[0];
-    const urli = detectCol(h, ['url','page','address','page url']);
-    return data.slice(1).filter(r => r[urli]).map(r => ({
-      url: (r[urli] || '').trim()
-    }));
+    const urli = detectCol(h, ['url','page url','address','page','landing page']);
+    const urlCol = urli >= 0 ? urli : 0;
+    return data.slice(1)
+      .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
+      .map(r => ({ url: String(r[urlCol] || '').trim() }));
   }
 
   function parsePersonas(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
     const h = data[0];
-    const namei = detectCol(h, ['persona','name','persona name','segment']);
-    const jtbdi = detectCol(h, ['jtbd','job to be done','goal','objective','need']);
-    const searchi= detectCol(h, ['search','query','keywords','search pattern','searches']);
-    return data.slice(1).filter(r => r[namei]).map(r => ({
-      name:   (r[namei]  || '').trim(),
-      jtbd:   (r[jtbdi]  || '').trim(),
-      search: (r[searchi]|| '').trim()
-    }));
+    const namei  = detectCol(h, ['persona name','persona','segment','name','audience']);
+    const jtbdi  = detectCol(h, ['job to be done','jtbd','goal','objective','need','pain point']);
+    const searchi= detectCol(h, ['search pattern','search queries','search keywords','searches','query','keywords']);
+    const nameCol = namei >= 0 ? namei : 0;
+    return data.slice(1)
+      .filter(r => r[nameCol] && String(r[nameCol]).trim().length > 0)
+      .map(r => ({
+        name:   String(r[nameCol] || '').trim(),
+        jtbd:   jtbdi  >= 0 ? String(r[jtbdi]  || '').trim() : '',
+        search: searchi >= 0 ? String(r[searchi]|| '').trim() : ''
+      }));
   }
 
   function parseAhrefs(csvText) {
@@ -942,19 +993,22 @@
     if (data.length < 2) return [];
     const h = data[0];
     const kwi   = detectCol(h, ['keyword','query','search term']);
-    const kdi   = detectCol(h, ['kd','keyword difficulty','us kd','kd (us)']);
+    const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
     const voli  = detectCol(h, ['volume','search volume','us volume']);
     const tpi   = detectCol(h, ['traffic potential','tp']);
-    const growI = detectCol(h, ['growth','growth %','12mo growth']);
-    const foreI = detectCol(h, ['forecast','12mo forecast']);
-    return data.slice(1).filter(r => r[kwi]).map(r => ({
-      keyword:          (r[kwi] || '').trim(),
-      kd:               parseFloat(r[kdi])   || 50,
-      volume:           parseFloat(r[voli])  || 0,
-      trafficPotential: parseFloat(r[tpi])   || 0,
-      growth:           parseFloat(r[growI]) || 0,
-      forecast:         parseFloat(r[foreI]) || 0
-    }));
+    const growI = detectCol(h, ['growth %','12mo growth','growth']);
+    const foreI = detectCol(h, ['12mo forecast','forecast']);
+    const kwCol = kwi >= 0 ? kwi : 0;
+    return data.slice(1)
+      .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
+      .map(r => ({
+        keyword:          String(r[kwCol] || '').trim(),
+        kd:               cleanNum(kdi   >= 0 ? r[kdi]   : null) ?? 50,
+        volume:           cleanNum(voli  >= 0 ? r[voli]  : null) ?? 0,
+        trafficPotential: cleanNum(tpi   >= 0 ? r[tpi]   : null) ?? 0,
+        growth:           cleanNum(growI >= 0 ? r[growI] : null) ?? 0,
+        forecast:         cleanNum(foreI >= 0 ? r[foreI] : null) ?? 0
+      }));
   }
 
   /* ════════════════════════════════════════════════════
@@ -1112,9 +1166,10 @@
     const offLimits  = new Set(contentAnalysis.map(r => normalizeUrl(r.url)));
     const allUrlsArr = wqa.map(r => r.url);
 
-    // New content opportunities
+    // New content opportunities — include ALL keywords regardless of whether volume was detected;
+    // scoring handles low-signal rows gracefully (they rank last)
     const newOpps = mergedKeywords
-      .filter(kw => kw.volume > 0)
+      .filter(kw => kw.keyword && kw.keyword.length > 1)
       .filter(kw => !hasCannibalizing(kw.keyword, allUrlsArr))
       .map(kw => ({
         type: 'new', ...kw,
@@ -1122,10 +1177,11 @@
         seasonMon: detectSeasonality(kw.keyword)
       }));
 
-    // Refresh opportunities (not in content analysis)
+    // Refresh opportunities — include every WQA URL not in the off-limits set;
+    // the scoring function will rank higher-value refresh targets above weaker ones
     const refreshOpps = wqa
       .filter(u => !offLimits.has(normalizeUrl(u.url)))
-      .filter(u => u.impressions > 100 || u.backlinks > 0 || (u.position >= 11 && u.position <= 20))
+      .filter(u => u.url && u.url.length > 0)
       .map(u => ({
         type: 'refresh', ...u,
         score: scoreRefresh(u),
@@ -1430,7 +1486,13 @@
     const f = state.files;
     function zone(key, title, hint, required, icon) {
       const loaded = !!f[key];
-      const fname = loaded ? f[key].name : '';
+      const fname  = loaded ? f[key].name : '';
+      const count  = state.parsed[key] ? state.parsed[key].length : null;
+      const countHtml = loaded && count !== null
+        ? count > 0
+          ? `<div class="upload-filename">✓ ${escapeHtml(fname)} — <strong>${count} rows</strong> parsed</div>`
+          : `<div class="upload-filename" style="color:var(--amber)">⚠ ${escapeHtml(fname)} — 0 rows detected. Check column headers match expected format.</div>`
+        : '';
       return `<div class="upload-zone ${loaded?'loaded':''}" id="zone-${key}"
           ondragover="handleDragOver(event,'${key}')" ondragleave="handleDragLeave('${key}')"
           ondrop="handleDrop(event,'${key}')">
@@ -1438,7 +1500,7 @@
         <div class="upload-icon">${icon}</div>
         <div class="upload-title">${title} ${required?'<span class="upload-badge badge-required">Required</span>':'<span class="upload-badge badge-optional">Optional</span>'}</div>
         <div class="upload-hint">${hint}</div>
-        ${loaded ? `<div class="upload-filename">✓ ${escapeHtml(fname)}</div>` : ''}
+        ${countHtml}
       </div>`;
     }
     return `
@@ -1571,19 +1633,19 @@
 
       <div class="cal-toolbar">
         <div class="left">
-          <select class="cal-filter-select" onchange="state.filter.month=$this.value||'all';renderApp()" id="fil-month">
+          <select class="cal-filter-select" onchange="state.filter.month=this.value||'all';renderApp()" id="fil-month">
             <option value="all">All Months</option>
             ${uniqueMonths.map(m=>`<option value="${m}" ${state.filter.month===m?'selected':''}>${m}</option>`).join('')}
           </select>
-          <select class="cal-filter-select" onchange="state.filter.status=$this.value||'all';renderApp()" id="fil-status">
+          <select class="cal-filter-select" onchange="state.filter.status=this.value||'all';renderApp()" id="fil-status">
             <option value="all">All Statuses</option>
             ${statuses.map(s=>`<option value="${s}" ${state.filter.status===s?'selected':''}>${s}</option>`).join('')}
           </select>
-          <select class="cal-filter-select" onchange="state.filter.type=$this.value||'all';renderApp()" id="fil-type">
+          <select class="cal-filter-select" onchange="state.filter.type=this.value||'all';renderApp()" id="fil-type">
             <option value="all">All Types</option>
             ${contentTypes.map(t=>`<option value="${t}" ${state.filter.type===t?'selected':''}>${t}</option>`).join('')}
           </select>
-          <select class="cal-filter-select" onchange="state.filter.funnel=$this.value||'all';renderApp()" id="fil-funnel">
+          <select class="cal-filter-select" onchange="state.filter.funnel=this.value||'all';renderApp()" id="fil-funnel">
             <option value="all">All Funnel Stages</option>
             ${funnelStages.map(f=>`<option value="${f}" ${state.filter.funnel===f?'selected':''}>${f}</option>`).join('')}
           </select>
