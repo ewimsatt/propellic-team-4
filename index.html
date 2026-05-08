@@ -1168,6 +1168,12 @@
     const months     = getMonthRange(startMonth, numMonths);
     const totalSlots = numMonths * contentPerMonth;
 
+    console.log('[ECB] generateCalendar start', {
+      keywords: keywords.length, wqa: wqa.length,
+      contentAnalysis: contentAnalysis.length, ahrefs: ahrefs.length,
+      numMonths, contentPerMonth, startMonth
+    });
+
     /* ── 1. Merge Ahrefs enrichment into keyword gap data ── */
     const mergedKeywords = keywords.map(kw => {
       const ah = ahrefs.find(a => a.keyword.toLowerCase() === kw.keyword.toLowerCase());
@@ -1188,19 +1194,24 @@
       if (kw.keyword) kwLookup.set(kw.keyword.toLowerCase(), kw);
     });
 
-    const offLimits  = new Set(contentAnalysis.map(r => normalizeUrl(r.url)));
-    const allUrlsArr = wqa.map(r => r.url);
+    const offLimits = new Set(contentAnalysis.map(r => normalizeUrl(r.url)));
 
-    /* ── 3. Score new-content opportunities ── */
+    /* ── 3. Score new-content opportunities ──
+       NOTE: We intentionally do NOT filter by hasCannibalizing here.
+       Keyword gap CSVs already represent terms the client doesn't rank for;
+       false-positive overlap with URL slugs was silently eliminating all candidates.
+    ── */
     const newOpps = mergedKeywords
       .filter(kw => kw.keyword && kw.keyword.length > 1)
-      .filter(kw => !hasCannibalizing(kw.keyword, allUrlsArr))
       .map(kw => ({
         type: 'new', ...kw,
         score:     scoreNewContent(kw),
         seasonMon: detectSeasonality(kw.keyword)
       }))
       .sort((a, b) => b.score - a.score);
+
+    console.log('[ECB] newOpps after filter:', newOpps.length,
+      newOpps.slice(0,3).map(o => o.keyword));
 
     /* ── 4. Score refresh opportunities & cross-reference keyword metrics ── */
     const refreshOpps = wqa
@@ -1229,6 +1240,14 @@
         };
       })
       .sort((a, b) => b.score - a.score);
+
+    console.log('[ECB] refreshOpps after filter:', refreshOpps.length,
+      refreshOpps.slice(0,3).map(o => o.url));
+
+    if (newOpps.length === 0 && refreshOpps.length === 0) {
+      console.warn('[ECB] Both opportunity pools are empty — calendar will be blank. ' +
+        'Check that keyword/WQA CSVs have the correct column headers.');
+    }
 
     /* ── 5. Pre-assign seasonal new-content keywords to target month slots ── */
     const seasonalAssignments = new Map(); // month index → newOpps index
@@ -1964,13 +1983,20 @@
   function handleGenerate() {
     const hasData = state.parsed.keywords.length > 0 || state.parsed.wqa.length > 0;
     if (!hasData) {
-      // Run demo if no files uploaded
       handleDemoData();
       return;
     }
+    // Clear any stale saved calendar before regenerating from fresh data
+    state.calendar = [];
     state.calendar = generateCalendar();
+    const filled = state.calendar.filter(r => r.targetKeyword && r.targetKeyword.length > 0).length;
+    const padded = state.calendar.length - filled;
     goToStep(3);
-    toast(`✓ Generated ${state.calendar.length} calendar entries`);
+    if (filled === 0) {
+      toast(`⚠ Calendar generated but all rows are empty. Open browser console (F12) and look for [ECB] logs to diagnose.`, 6000);
+    } else {
+      toast(`✓ Generated ${filled} content items from your data${padded > 0 ? ` (${padded} placeholder rows added to reach target)` : ''}`);
+    }
   }
 
   function handleAddRow() {
