@@ -1,39 +1,2058 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Propellic Hackathon — Team 4</title>
-    <style>
-      body {
-        min-height: 100vh;
-        margin: 0;
-        display: grid;
-        place-items: center;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: linear-gradient(135deg, #111827, #2563eb);
-        color: white;
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Propellic · Editorial Calendar Builder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    /* ── Brand Tokens ─────────────────────────────────── */
+    :root {
+      --midnight:       #152534;
+      --midnight-light: #1e3347;
+      --midnight-mid:   #2a4560;
+      --midnight-faint: #3b5f7a;
+      --pink:           #E21A6B;
+      --pink-hover:     #c4185c;
+      --pink-light:     #EB669C;
+      --pink-pale:      #F7BFD5;
+      --white:          #ffffff;
+      --off-white:      #f0f4f7;
+      --text-secondary: rgba(255,255,255,0.7);
+      --text-muted:     rgba(255,255,255,0.4);
+      --border:         rgba(255,255,255,0.12);
+      --border-strong:  rgba(255,255,255,0.22);
+
+      /* Semantic */
+      --green:    #10B981;
+      --amber:    #F59E0B;
+      --blue:     #3B82F6;
+      --purple:   #8B5CF6;
+      --red:      #EF4444;
+      --teal:     #06B6D4;
+
+      --radius-sm: 6px;
+      --radius:    10px;
+      --radius-lg: 16px;
+      --shadow:    0 8px 32px rgba(0,0,0,0.4);
+      --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    /* ── Reset ────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: 'Montserrat', 'Segoe UI', sans-serif;
+      background: var(--midnight);
+      color: var(--white);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    a { color: var(--pink-light); text-decoration: none; }
+    button { font-family: inherit; cursor: pointer; border: none; outline: none; }
+    input, select, textarea { font-family: inherit; }
+    :focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
+
+    /* ── Header ───────────────────────────────────────── */
+    .app-header {
+      background: rgba(21,37,52,0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: var(--pink);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      font-weight: 800;
+    }
+    .logo-sub {
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .header-client {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    /* ── Progress Steps ───────────────────────────────── */
+    .progress-bar {
+      background: var(--midnight-light);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      height: 52px;
+    }
+    .progress-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      padding: 0 1.5rem;
+      position: relative;
+    }
+    .progress-step.active { color: var(--white); }
+    .progress-step.done { color: var(--pink-light); }
+    .step-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--midnight-mid);
+      border: 2px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      transition: all 0.25s;
+    }
+    .progress-step.active .step-num {
+      background: var(--pink);
+      border-color: var(--pink);
+    }
+    .progress-step.done .step-num {
+      background: var(--pink-light);
+      border-color: var(--pink-light);
+    }
+    .step-arrow {
+      color: var(--midnight-faint);
+      font-size: 1rem;
+      padding: 0 0.5rem;
+    }
+
+    /* ── Main Content ─────────────────────────────────── */
+    .page-content {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2.5rem 2rem;
+    }
+    .page-content.wide {
+      max-width: 100%;
+      padding: 1.5rem 1.5rem;
+    }
+    .page-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      margin-bottom: 0.4rem;
+      letter-spacing: -0.02em;
+    }
+    .page-sub {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+    }
+    .eyebrow {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--pink);
+      margin-bottom: 0.5rem;
+    }
+
+    /* ── Cards ────────────────────────────────────────── */
+    .card {
+      background: var(--midnight-light);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .card-title-icon {
+      width: 28px;
+      height: 28px;
+      background: rgba(226,26,107,0.15);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+    }
+
+    /* ── Form Elements ────────────────────────────────── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem 1.5rem;
+    }
+    .form-grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem 1.5rem;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+    .form-group.full { grid-column: 1 / -1; }
+    label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+    label .req { color: var(--pink); }
+    .form-input, .form-select {
+      background: var(--midnight);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      color: var(--white);
+      padding: 0.6rem 0.85rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: border-color 0.2s;
+      width: 100%;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--pink);
+      outline: none;
+    }
+    .form-input::placeholder { color: var(--text-muted); }
+    .form-select option { background: var(--midnight-light); }
+
+    /* ── Buttons ──────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-primary {
+      background: var(--pink);
+      color: var(--white);
+    }
+    .btn-primary:hover { background: var(--pink-hover); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--white);
+      border: 1.5px solid var(--border-strong);
+    }
+    .btn-secondary:hover { border-color: var(--pink-light); color: var(--pink-light); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      padding: 0.5rem 0.75rem;
+    }
+    .btn-ghost:hover { color: var(--white); background: rgba(255,255,255,0.06); }
+    .btn-danger {
+      background: transparent;
+      color: var(--red);
+      padding: 0.35rem 0.6rem;
+      border-radius: 5px;
+      font-size: 0.8rem;
+    }
+    .btn-danger:hover { background: rgba(239,68,68,0.12); }
+    .btn-sm { padding: 0.4rem 0.85rem; font-size: 0.76rem; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 1.5rem;
+      justify-content: flex-end;
+    }
+
+    /* ── Upload Zones ─────────────────────────────────── */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .upload-zone {
+      border: 1.5px dashed var(--border-strong);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--pink);
+      background: rgba(226,26,107,0.05);
+    }
+    .upload-zone.loaded {
+      border-style: solid;
+      border-color: var(--green);
+      background: rgba(16,185,129,0.06);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      font-size: 0;
+    }
+    .upload-icon { font-size: 1.6rem; margin-bottom: 0.5rem; }
+    .upload-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .upload-hint {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .upload-filename {
+      font-size: 0.72rem;
+      color: var(--green);
+      font-weight: 600;
+      margin-top: 0.4rem;
+    }
+    .upload-optional {
+      grid-column: 1 / -1;
+    }
+    .upload-badge {
+      display: inline-block;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 5px;
+      vertical-align: middle;
+    }
+    .badge-optional {
+      background: rgba(255,255,255,0.08);
+      color: var(--text-muted);
+    }
+    .badge-required {
+      background: rgba(226,26,107,0.15);
+      color: var(--pink);
+    }
+
+    /* ── Demo Banner ──────────────────────────────────── */
+    .demo-banner {
+      background: rgba(226,26,107,0.1);
+      border: 1px solid rgba(226,26,107,0.3);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .demo-banner p { font-size: 0.82rem; color: var(--text-secondary); }
+    .demo-banner strong { color: var(--white); }
+
+    /* ── Calendar Toolbar ─────────────────────────────── */
+    .cal-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.9rem 1.5rem;
+      background: var(--midnight-light);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .cal-toolbar .left { display: flex; align-items: center; gap: 0.75rem; flex: 1; }
+    .cal-toolbar .right { display: flex; align-items: center; gap: 0.75rem; }
+    .cal-filter-select {
+      background: var(--midnight);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--white);
+      padding: 0.4rem 0.75rem;
+      font-size: 0.76rem;
+      font-family: inherit;
+      font-weight: 500;
+    }
+    .cal-count {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* ── Table ────────────────────────────────────────── */
+    .table-scroll-wrapper {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: calc(100vh - 230px);
+    }
+    .cal-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.78rem;
+      min-width: 2200px;
+    }
+    .cal-table thead th {
+      background: #0f1e2e;
+      color: var(--text-muted);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 0.6rem 0.75rem;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .cal-table thead th:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: #0f1e2e;
+    }
+    .cal-table tbody tr {
+      transition: background 0.15s;
+    }
+    .cal-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+    .cal-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.015); }
+    .cal-table tbody tr:nth-child(even):hover { background: rgba(255,255,255,0.04); }
+    .cal-table td {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      vertical-align: middle;
+    }
+    .cal-table td:first-child {
+      position: sticky;
+      left: 0;
+      background: var(--midnight);
+      z-index: 1;
+    }
+    .cal-table tbody tr:nth-child(even) td:first-child {
+      background: #12202f;
+    }
+
+    /* Column widths */
+    .col-priority      { width: 55px;  min-width: 55px; text-align: center; }
+    .col-month         { width: 100px; min-width: 100px; }
+    .col-type          { width: 130px; min-width: 130px; }
+    .col-status        { width: 155px; min-width: 155px; }
+    .col-url           { width: 140px; min-width: 140px; }
+    .col-funnel        { width: 115px; min-width: 115px; }
+    .col-topic         { width: 210px; min-width: 210px; }
+    .col-kw            { width: 155px; min-width: 155px; }
+    .col-kd            { width: 60px;  min-width: 60px;  text-align: center; }
+    .col-volume        { width: 75px;  min-width: 75px;  text-align: right; }
+    .col-position      { width: 72px;  min-width: 72px;  text-align: center; }
+    .col-pain          { width: 155px; min-width: 155px; }
+    .col-tp            { width: 80px;  min-width: 80px;  text-align: right; }
+    .col-growth        { width: 75px;  min-width: 75px;  text-align: right; }
+    .col-forecast      { width: 80px;  min-width: 80px;  text-align: right; }
+    .col-deliverable   { width: 160px; min-width: 160px; }
+    .col-rationale     { width: 220px; min-width: 220px; }
+    .col-notes         { width: 200px; min-width: 200px; }
+    .col-actions       { width: 42px;  min-width: 42px;  text-align: center; }
+
+    /* Priority number */
+    .priority-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(226,26,107,0.15);
+      color: var(--pink-light);
+      font-weight: 700;
+      font-size: 0.75rem;
+    }
+
+    /* Editable cells */
+    .editable {
+      display: block;
+      width: 100%;
+      padding: 0.3rem 0.4rem;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      cursor: text;
+      line-height: 1.4;
+      min-height: 1.8em;
+      word-break: break-word;
+      transition: border-color 0.15s;
+    }
+    .editable:hover { border-color: var(--border); background: rgba(255,255,255,0.03); }
+    .editable:focus {
+      border-color: var(--pink);
+      background: rgba(226,26,107,0.06);
+      outline: none;
+    }
+
+    /* Inline select */
+    .cell-select {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--white);
+      font-size: 0.76rem;
+      font-family: inherit;
+      font-weight: 500;
+      padding: 0.25rem 0.35rem;
+      border-radius: 4px;
+      width: 100%;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .cell-select:hover { border-color: var(--border); }
+    .cell-select:focus { border-color: var(--pink); outline: none; }
+    .cell-select option { background: var(--midnight-light); }
+
+    /* URL cell */
+    .url-cell { font-size: 0.7rem; color: var(--pink-light); }
+    .url-new {
+      display: inline-block;
+      background: rgba(226,26,107,0.15);
+      color: var(--pink);
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Status Badges ────────────────────────────────── */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status-badge::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+    .s-proposed   { background: rgba(59,130,246,0.15);  color: #60A5FA; }
+    .s-approved   { background: rgba(6,182,212,0.15);   color: #22D3EE; }
+    .s-rejected   { background: rgba(239,68,68,0.15);   color: #F87171; }
+    .s-outline    { background: rgba(245,158,11,0.15);  color: #FCD34D; }
+    .s-writing    { background: rgba(251,146,60,0.15);  color: #FB923C; }
+    .s-review     { background: rgba(139,92,246,0.15);  color: #A78BFA; }
+    .s-published  { background: rgba(16,185,129,0.15);  color: #34D399; }
+
+    /* ── Funnel Badges ────────────────────────────────── */
+    .funnel-badge {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .funnel-stage {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .funnel-sub {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      padding-left: 2px;
+    }
+    .f-tofu  { background: rgba(139,92,246,0.18);  color: #A78BFA; }
+    .f-mofu  { background: rgba(59,130,246,0.18);  color: #60A5FA; }
+    .f-bofu  { background: rgba(16,185,129,0.18);  color: #34D399; }
+
+    /* ── Content Type Badges ──────────────────────────── */
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.66rem;
+      font-weight: 600;
+      padding: 3px 7px;
+      border-radius: 4px;
+      border: 1px solid;
+      white-space: nowrap;
+    }
+    .t-outline { border-color: rgba(59,130,246,0.4);  color: #60A5FA;  background: rgba(59,130,246,0.08); }
+    .t-refresh { border-color: rgba(245,158,11,0.4);  color: #FCD34D;  background: rgba(245,158,11,0.08); }
+    .t-ai      { border-color: rgba(139,92,246,0.4);  color: #A78BFA;  background: rgba(139,92,246,0.08); }
+
+    /* ── Rationale Tags ───────────────────────────────── */
+    .rationale-tag {
+      display: inline-block;
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 2px 5px;
+      border-radius: 3px;
+      margin-right: 4px;
+      margin-bottom: 3px;
+      vertical-align: middle;
+    }
+    .r-seasonality { background: rgba(245,158,11,0.2);  color: #FCD34D; }
+    .r-metric      { background: rgba(59,130,246,0.2);  color: #60A5FA; }
+    .r-strategy    { background: rgba(226,26,107,0.2);  color: var(--pink-light); }
+
+    /* ── KD / Volume chips ────────────────────────────── */
+    .kd-chip {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.72rem;
+    }
+    .kd-low  { background: rgba(16,185,129,0.15); color: #34D399; }
+    .kd-mid  { background: rgba(245,158,11,0.15); color: #FCD34D; }
+    .kd-high { background: rgba(239,68,68,0.15);  color: #F87171; }
+
+    .growth-positive { color: #34D399; font-weight: 600; }
+    .growth-negative { color: #F87171; font-weight: 600; }
+
+    /* ── Stats Bar ────────────────────────────────────── */
+    .stats-bar {
+      display: flex;
+      gap: 1.5rem;
+      padding: 0.9rem 1.5rem;
+      background: rgba(15,30,46,0.7);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .stat-value {
+      font-size: 1.1rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .stat-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .stat-item.pink .stat-value { color: var(--pink-light); }
+
+    /* ── Empty State ──────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--text-muted);
+    }
+    .empty-state-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .empty-state h3 { font-size: 1rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; }
+    .empty-state p { font-size: 0.82rem; }
+
+    /* ── Notification Toast ───────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      background: var(--midnight-light);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--pink);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      z-index: 1000;
+      box-shadow: var(--shadow);
+      animation: slideIn 0.25s ease;
+      max-width: 320px;
+    }
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+
+    /* ── Add Row Button ───────────────────────────────── */
+    .add-row-tr td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: none;
+    }
+    .add-row-btn {
+      background: transparent;
+      border: 1px dashed var(--border);
+      border-radius: 5px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.4rem 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .add-row-btn:hover { border-color: var(--pink); color: var(--pink); }
+
+    /* ── Misc ─────────────────────────────────────────── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+    .text-muted { color: var(--text-muted); }
+    .text-pink { color: var(--pink-light); }
+    .font-bold { font-weight: 700; }
+    .mt-1 { margin-top: 0.5rem; }
+    .info-box {
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.2);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      font-size: 0.78rem;
+      color: #93C5FD;
+      margin-top: 0.75rem;
+    }
+    .info-box strong { color: var(--white); }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--midnight); }
+    ::-webkit-scrollbar-thumb { background: var(--midnight-mid); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--midnight-faint); }
+  </style>
+</head>
+
+<body>
+  <!-- ── Header ── -->
+  <header class="app-header">
+    <div class="logo">
+      <div class="logo-icon">P</div>
+      <div>
+        <div>Propellic</div>
+        <div class="logo-sub">Editorial Calendar Builder</div>
+      </div>
+    </div>
+    <div id="header-client" class="header-client"></div>
+  </header>
+
+  <!-- ── Progress Bar ── -->
+  <nav class="progress-bar" id="progress-bar">
+    <div class="progress-step active" id="ps-1">
+      <span class="step-num">1</span> Client Setup
+    </div>
+    <span class="step-arrow">›</span>
+    <div class="progress-step" id="ps-2">
+      <span class="step-num">2</span> Upload Documents
+    </div>
+    <span class="step-arrow">›</span>
+    <div class="progress-step" id="ps-3">
+      <span class="step-num">3</span> Editorial Calendar
+    </div>
+  </nav>
+
+  <!-- ── App Shell ── -->
+  <div id="app"></div>
+
+  <script>
+  /* ════════════════════════════════════════════════════
+     STATE
+  ════════════════════════════════════════════════════ */
+  const state = {
+    step: 1,
+    client: {
+      name: '', url: '', industry: '', startMonth: '', numMonths: 6, contentPerMonth: 2
+    },
+    files: { personas: null, keywords: null, contentAnalysis: null, wqa: null, ahrefs: null },
+    parsed: { personas: [], keywords: [], contentAnalysis: [], wqa: [], ahrefs: [] },
+    calendar: [],
+    filter: { month: 'all', status: 'all', type: 'all', funnel: 'all' }
+  };
+
+  /* ════════════════════════════════════════════════════
+     UTILITIES
+  ════════════════════════════════════════════════════ */
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  }
+
+  function normalizeUrl(url = '') {
+    return url.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase().trim();
+  }
+
+  function fmtVol(n) {
+    if (!n && n !== 0) return '—';
+    const v = parseInt(n);
+    if (isNaN(v)) return '—';
+    if (v >= 1000) return (v/1000).toFixed(1).replace('.0','') + 'k';
+    return v.toString();
+  }
+
+  function fmtPct(n) {
+    if (!n && n !== 0) return '—';
+    const v = parseFloat(n);
+    if (isNaN(v)) return '—';
+    return (v > 0 ? '+' : '') + v.toFixed(0) + '%';
+  }
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function getMonthRange(startMonthStr, n) {
+    if (!startMonthStr) {
+      const now = new Date();
+      startMonthStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    }
+    const [yr, mo] = startMonthStr.split('-').map(Number);
+    const result = [];
+    for (let i = 0; i < n; i++) {
+      const d = new Date(yr, mo - 1 + i, 1);
+      result.push(`${MONTHS[d.getMonth()]} ${d.getFullYear()}`);
+    }
+    return result;
+  }
+
+  function toast(msg, duration = 3000) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), duration);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  /* ════════════════════════════════════════════════════
+     CSV PARSING  — smart column detection
+  ════════════════════════════════════════════════════ */
+
+  // Exact-first matching: prevents "Keyword Difficulty" stealing the keyword column
+  function detectCol(headers, patterns) {
+    const lower = headers.map(h => (h||'').toLowerCase().trim().replace(/['"]/g,''));
+
+    // Pass 1: exact match
+    for (const p of patterns) {
+      const i = lower.indexOf(p);
+      if (i !== -1) return i;
+    }
+    // Pass 2: header starts with pattern (e.g. "volume (us)" → "volume")
+    for (const p of patterns) {
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const i = lower.findIndex(h => new RegExp('^' + esc + '(\\s|[^a-z]|$)').test(h));
+      if (i !== -1) return i;
+    }
+    // Pass 3: pattern appears as whole word(s) anywhere (only for patterns ≥ 4 chars)
+    for (const p of patterns) {
+      if (p.length < 4) continue;
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const i = lower.findIndex(h => new RegExp('(^|\\s)' + esc + '(\\s|$)').test(h));
+      if (i !== -1) return i;
+    }
+    // Pass 4: loose contains for long patterns only (≥ 6 chars)
+    for (const p of patterns) {
+      if (p.length < 6) continue;
+      const i = lower.findIndex(h => h.includes(p));
+      if (i !== -1) return i;
+    }
+    return -1;
+  }
+
+  // Strip commas, currency symbols, % from numeric strings like "1,200" or "$45.00"
+  function cleanNum(str) {
+    if (str === null || str === undefined || str === '') return null;
+    const cleaned = String(str).replace(/[,$€£¥\s%"']/g,'').trim();
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? null : n;
+  }
+
+  function parseKeywords(csvText) {
+    const { data } = Papa.parse(csvText, { skipEmptyLines: true });
+    if (data.length < 2) return [];
+    const h = data[0];
+    // Detect columns — order patterns from most specific to least specific
+    const kwi   = detectCol(h, ['keyword','query','search term','key phrase','term','phrase']);
+    const voli  = detectCol(h, ['volume','search volume','monthly volume','monthly searches','avg. monthly searches','searches']);
+    const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
+    const tpi   = detectCol(h, ['traffic potential','potential traffic','tp']);
+    const growI = detectCol(h, ['growth %','12 month growth','12mo growth','growth','yoy']);
+    const foreI = detectCol(h, ['12mo forecast','12 month forecast','forecast','projected']);
+    const econI = detectCol(h, ['economic impact','economic','revenue impact','value']);
+    const posI  = detectCol(h, ['avg. position','avg position','average position','current position','position','rank','ranking']);
+    const compI = detectCol(h, ['competitor','competition','competing url','competitor url']);
+
+    // Fallback: if keyword col not found, use col 0 (most keyword exports put keyword first)
+    const kwCol = kwi >= 0 ? kwi : 0;
+
+    return data.slice(1)
+      .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
+      .map(r => ({
+        keyword:         String(r[kwCol] || '').trim(),
+        volume:          cleanNum(voli  >= 0 ? r[voli]  : null) ?? 0,
+        kd:              cleanNum(kdi   >= 0 ? r[kdi]   : null) ?? 50,
+        trafficPotential:cleanNum(tpi   >= 0 ? r[tpi]   : null) ?? 0,
+        growth:          cleanNum(growI >= 0 ? r[growI] : null) ?? 0,
+        forecast:        cleanNum(foreI >= 0 ? r[foreI] : null) ?? 0,
+        economic:        cleanNum(econI >= 0 ? r[econI] : null) ?? 0,
+        currentPosition: cleanNum(posI  >= 0 ? r[posI]  : null) ?? 0,
+        competitor:      compI >= 0 ? String(r[compI]||'').trim() : ''
+      }));
+  }
+
+  function parseWQA(csvText) {
+    const { data } = Papa.parse(csvText, { skipEmptyLines: true });
+    if (data.length < 2) return [];
+    const h = data[0];
+    const urli = detectCol(h, ['url','page url','address','page','landing page','full url']);
+    const impi = detectCol(h, ['impressions','total impressions','impression']);
+    const sesi = detectCol(h, ['sessions','visits','clicks','total clicks','organic sessions']);
+    const bki  = detectCol(h, ['referring domains','backlinks','total backlinks','links','rd']);
+    const posi = detectCol(h, ['avg. position','avg position','average position','position','rank','ranking']);
+    const wci  = detectCol(h, ['word count','words','wordcount','word_count']);
+    const kwi  = detectCol(h, ['top keyword','primary keyword','target keyword','keyword','main keyword']);
+
+    const urlCol = urli >= 0 ? urli : 0;
+
+    return data.slice(1)
+      .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
+      .map(r => ({
+        url:         String(r[urlCol] || '').trim(),
+        impressions: cleanNum(impi >= 0 ? r[impi] : null) ?? 0,
+        sessions:    cleanNum(sesi >= 0 ? r[sesi] : null) ?? 0,
+        backlinks:   cleanNum(bki  >= 0 ? r[bki]  : null) ?? 0,
+        position:    cleanNum(posi >= 0 ? r[posi] : null) ?? 100,
+        wordCount:   cleanNum(wci  >= 0 ? r[wci]  : null) ?? 0,
+        topKeyword:  kwi >= 0 ? String(r[kwi]||'').trim() : ''
+      }));
+  }
+
+  function parseContentAnalysis(csvText) {
+    const { data } = Papa.parse(csvText, { skipEmptyLines: true });
+    if (data.length < 2) return [];
+    const h = data[0];
+    const urli = detectCol(h, ['url','page url','address','page','landing page']);
+    const urlCol = urli >= 0 ? urli : 0;
+    return data.slice(1)
+      .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
+      .map(r => ({ url: String(r[urlCol] || '').trim() }));
+  }
+
+  function parsePersonas(csvText) {
+    const { data } = Papa.parse(csvText, { skipEmptyLines: true });
+    if (data.length < 2) return [];
+    const h = data[0];
+    const namei  = detectCol(h, ['persona name','persona','segment','name','audience']);
+    const jtbdi  = detectCol(h, ['job to be done','jtbd','goal','objective','need','pain point']);
+    const searchi= detectCol(h, ['search pattern','search queries','search keywords','searches','query','keywords']);
+    const nameCol = namei >= 0 ? namei : 0;
+    return data.slice(1)
+      .filter(r => r[nameCol] && String(r[nameCol]).trim().length > 0)
+      .map(r => ({
+        name:   String(r[nameCol] || '').trim(),
+        jtbd:   jtbdi  >= 0 ? String(r[jtbdi]  || '').trim() : '',
+        search: searchi >= 0 ? String(r[searchi]|| '').trim() : ''
+      }));
+  }
+
+  function parseAhrefs(csvText) {
+    const { data } = Papa.parse(csvText, { skipEmptyLines: true });
+    if (data.length < 2) return [];
+    const h = data[0];
+    const kwi   = detectCol(h, ['keyword','query','search term']);
+    const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
+    const voli  = detectCol(h, ['volume','search volume','us volume']);
+    const tpi   = detectCol(h, ['traffic potential','tp']);
+    const growI = detectCol(h, ['growth %','12mo growth','growth']);
+    const foreI = detectCol(h, ['12mo forecast','forecast']);
+    const kwCol = kwi >= 0 ? kwi : 0;
+    return data.slice(1)
+      .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
+      .map(r => ({
+        keyword:          String(r[kwCol] || '').trim(),
+        kd:               cleanNum(kdi   >= 0 ? r[kdi]   : null) ?? 50,
+        volume:           cleanNum(voli  >= 0 ? r[voli]  : null) ?? 0,
+        trafficPotential: cleanNum(tpi   >= 0 ? r[tpi]   : null) ?? 0,
+        growth:           cleanNum(growI >= 0 ? r[growI] : null) ?? 0,
+        forecast:         cleanNum(foreI >= 0 ? r[foreI] : null) ?? 0
+      }));
+  }
+
+  /* ════════════════════════════════════════════════════
+     PRIORITIZATION ENGINE
+  ════════════════════════════════════════════════════ */
+  const SEASON_SIGNALS = {
+    jan:['january','jan ','winter travel','new year'],
+    feb:['february','feb ','valentines','valentine'],
+    mar:['march','mar ','spring break','spring travel'],
+    apr:['april','apr ','easter','spring'],
+    may:['may travel','may ','mothers day'],
+    jun:['june','jun ','summer travel','summer trip'],
+    jul:['july','jul ','fourth of july','summer vacation'],
+    aug:['august','aug ','back to school'],
+    sep:['september','sep ','fall travel','autumn travel'],
+    oct:['october','oct ','fall foliage','halloween'],
+    nov:['november','nov ','thanksgiving','holiday travel'],
+    dec:['december','dec ','christmas','holiday','new years eve']
+  };
+
+  function detectSeasonality(keyword) {
+    const kl = keyword.toLowerCase();
+    for (const [mon, signals] of Object.entries(SEASON_SIGNALS)) {
+      if (signals.some(s => kl.includes(s))) return mon;
+    }
+    return null;
+  }
+
+  const MONTH_IDX = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+
+  function seasonalPublishMonth(peakMon, startMonthStr, numMonths) {
+    if (!peakMon) return null;
+    const [yr, mo] = (startMonthStr || '2025-01').split('-').map(Number);
+    const peakIdx = MONTH_IDX[peakMon];
+    // Publish 2–3 months before peak
+    const publishIdx = (peakIdx - 3 + 12) % 12;
+    // Find which calendar slot this falls into
+    for (let i = 0; i < numMonths; i++) {
+      const d = new Date(yr, mo - 1 + i, 1);
+      if (d.getMonth() === publishIdx) return i;
+    }
+    return null;
+  }
+
+  function inferFunnel(keyword) {
+    const kl = keyword.toLowerCase();
+    const bofu = ['best','vs','compare','review','buy','book','cost','price','cheap','deal','hire','agency','service'];
+    const mofu = ['how to','guide','tips','ideas','plan','itinerary','things to do','what to','when to','places'];
+    if (bofu.some(t => kl.includes(t))) return { stage:'BOFU', sub:'Decision' };
+    if (mofu.some(t => kl.includes(t))) return { stage:'MOFU', sub:'Consideration' };
+    return { stage:'TOFU', sub:'Awareness' };
+  }
+
+  function inferDeliverable(type, kw, vol) {
+    if (type === 'refresh') return 'Content Refresh';
+    const kl = (kw||'').toLowerCase();
+    if (kl.includes(' vs ') || kl.includes('compare')) return 'Comparison Guide (~2,000 words)';
+    if (kl.includes('guide') || kl.includes('how to')) return 'Pillar Guide (~3,000 words)';
+    if (kl.includes('itinerary') || kl.includes('trip')) return 'Itinerary Post (~2,500 words)';
+    if (kl.includes('best ')) return 'Listicle / Best-Of (~2,000 words)';
+    if (kl.includes('what is') || kl.includes('is ') || kl.includes('are ')) return 'FAQ Explainer (~1,200 words)';
+    if (vol > 10000) return 'New Pillar Post (~3,000 words)';
+    return 'New Utility Post (~1,500 words)';
+  }
+
+  function inferPainPoint(keyword, personas) {
+    const kl = keyword.toLowerCase();
+    if (personas.length > 0) {
+      for (const p of personas) {
+        if (p.search && kl.split(' ').some(w => p.search.toLowerCase().includes(w))) {
+          return p.jtbd || 'Persona: ' + p.name;
+        }
       }
-      main {
-        text-align: center;
-        padding: 2rem;
+    }
+    if (kl.includes('best')) return 'Finding top-quality options';
+    if (kl.includes('cost') || kl.includes('price')) return 'Budget planning & transparency';
+    if (kl.includes('guide') || kl.includes('how')) return 'Research & planning confidence';
+    if (kl.includes('itinerary')) return 'Trip planning structure';
+    if (kl.includes('safe') || kl.includes('tips')) return 'Risk reduction & travel safety';
+    return 'Information discovery';
+  }
+
+  function scoreNewContent(kw) {
+    const vol = parseFloat(kw.volume) || 0;
+    const kd  = parseFloat(kw.kd) || 50;
+    const tp  = parseFloat(kw.trafficPotential) || 0;
+    const gr  = parseFloat(kw.growth) || 0;
+    const base = (vol / 100) * Math.max(0, (100 - kd) / 100);
+    const tpBonus = tp / 200;
+    const growthBonus = gr > 0 ? gr * 3 : 0;
+    return base + tpBonus + growthBonus;
+  }
+
+  function scoreRefresh(url) {
+    const imp  = parseFloat(url.impressions) || 0;
+    const ses  = parseFloat(url.sessions)    || 0;
+    const pos  = parseFloat(url.position)    || 100;
+    const bl   = parseFloat(url.backlinks)   || 0;
+    const gap = ses > 0 ? (imp / ses) : imp / 5;
+    const strikingBonus = (pos >= 11 && pos <= 20) ? 6000 : 0;
+    const blBonus = bl * 80;
+    const negForecastPenalty = 0; // flag but don't fully penalize
+    return gap + strikingBonus + blBonus - negForecastPenalty;
+  }
+
+  function hasCannibalizing(keyword, allUrls) {
+    const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    if (words.length === 0) return false;
+    return allUrls.some(url => {
+      const slug = url.toLowerCase().replace(/[-_/]/g,' ');
+      return words.filter(w => slug.includes(w)).length >= Math.ceil(words.length * 0.7);
+    });
+  }
+
+  function buildRationale(opp, slotIdx, seasonMon) {
+    if (opp.type === 'refresh') {
+      const pos = opp.position;
+      const gap = opp.sessions > 0 ? Math.round(opp.impressions / opp.sessions) : 0;
+      if (pos >= 11 && pos <= 20) {
+        return `METRIC: Striking-distance pos ${pos} — refresh to break page 1 threshold and capture high-intent traffic.`;
       }
-      h1 {
-        font-size: clamp(2rem, 8vw, 5rem);
-        margin: 0;
+      if (gap > 20) {
+        return `METRIC: ${gap}:1 impression-to-click gap signals H1/title misalignment. Refresh meta + intro to unlock latent sessions.`;
       }
-      p.tagline {
-        font-size: 1.25rem;
-        opacity: 0.8;
-        margin-top: 1rem;
+      if (opp.backlinks > 5) {
+        return `METRIC: ${opp.backlinks} backlinks = link equity worth protecting. Refresh to prevent decay and improve E-E-A-T signals.`;
       }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Welcome to the Hackathon, Team 4!</h1>
-      <p class="tagline">Let's build something great 🚀</p>
-      <!-- owen: setup verified -->
-    </main>
-  </body>
+      return `METRIC: Underperforming page with measurable gap between impressions and sessions — high-ROI refresh target.`;
+    }
+    if (seasonMon !== null) {
+      const peakMonth = MONTHS[MONTH_IDX[detectSeasonality(opp.keyword)] ?? 0];
+      return `SEASONALITY: Publish ${Math.abs(slotIdx - seasonMon)} months ahead of ${peakMonth} peak. Google needs crawl time to rank before intent surge.`;
+    }
+    const kd = parseFloat(opp.kd) || 50;
+    const vol = parseInt(opp.volume) || 0;
+    if (kd < 30) return `METRIC: Low KD (${kd}) + ${fmtVol(vol)}/mo volume = fastest path to organic wins. Anchor piece for topical cluster.`;
+    if (opp.growth > 20) return `METRIC: +${opp.growth}% growth trend — capture window is now. Negative-forecast lock-in risk if delayed.`;
+    return `STRATEGY: Fills identified keyword gap where competitors rank but client does not. Supports cluster authority building.`;
+  }
+
+  function generateCalendar() {
+    const { keywords, wqa, contentAnalysis, personas, ahrefs } = state.parsed;
+    const { startMonth, numMonths, contentPerMonth } = state.client;
+    const months = getMonthRange(startMonth, numMonths);
+    const slots = numMonths * contentPerMonth;
+
+    // Merge Ahrefs data into keywords if available
+    const mergedKeywords = keywords.map(kw => {
+      const ah = ahrefs.find(a => a.keyword.toLowerCase() === kw.keyword.toLowerCase());
+      return ah ? { ...kw, kd: ah.kd || kw.kd, volume: ah.volume || kw.volume,
+                    trafficPotential: ah.trafficPotential || kw.trafficPotential,
+                    growth: ah.growth || kw.growth, forecast: ah.forecast || kw.forecast } : kw;
+    });
+
+    const offLimits  = new Set(contentAnalysis.map(r => normalizeUrl(r.url)));
+    const allUrlsArr = wqa.map(r => r.url);
+
+    // New content opportunities — include ALL keywords regardless of whether volume was detected;
+    // scoring handles low-signal rows gracefully (they rank last)
+    const newOpps = mergedKeywords
+      .filter(kw => kw.keyword && kw.keyword.length > 1)
+      .filter(kw => !hasCannibalizing(kw.keyword, allUrlsArr))
+      .map(kw => ({
+        type: 'new', ...kw,
+        score: scoreNewContent(kw),
+        seasonMon: detectSeasonality(kw.keyword)
+      }));
+
+    // Refresh opportunities — include every WQA URL not in the off-limits set;
+    // the scoring function will rank higher-value refresh targets above weaker ones
+    const refreshOpps = wqa
+      .filter(u => !offLimits.has(normalizeUrl(u.url)))
+      .filter(u => u.url && u.url.length > 0)
+      .map(u => ({
+        type: 'refresh', ...u,
+        score: scoreRefresh(u),
+        keyword: u.url.split('/').filter(Boolean).pop()?.replace(/-/g,' ') || u.url
+      }));
+
+    // Sort all by score
+    const allOpps = [...newOpps, ...refreshOpps].sort((a,b) => b.score - a.score);
+
+    // Assign to months — try to pair an anchor + complement each month
+    const calendar = [];
+    let priority = 1;
+    let oppIdx = 0;
+
+    // For seasonality: pre-assign seasonal keywords to their target month slot
+    const seasonalAssignments = new Map(); // slotIdx → opp
+    const seasonalUsed = new Set();
+
+    allOpps.forEach((opp, i) => {
+      if (opp.seasonMon) {
+        const targetSlot = seasonalPublishMonth(opp.seasonMon, startMonth, numMonths);
+        if (targetSlot !== null && !seasonalAssignments.has(targetSlot)) {
+          seasonalAssignments.set(targetSlot, { opp, idx: i });
+        }
+      }
+    });
+
+    for (let mi = 0; mi < numMonths; mi++) {
+      const month = months[mi];
+      for (let pi = 0; pi < contentPerMonth; pi++) {
+        const slotIdx = mi * contentPerMonth + pi;
+        let opp = null;
+
+        // Try seasonal assignment for first slot of month
+        if (pi === 0 && seasonalAssignments.has(mi)) {
+          const sa = seasonalAssignments.get(mi);
+          if (!seasonalUsed.has(sa.idx)) {
+            opp = sa.opp;
+            seasonalUsed.add(sa.idx);
+          }
+        }
+
+        // Otherwise take next best unused opp
+        if (!opp) {
+          while (oppIdx < allOpps.length) {
+            const candidate = allOpps[oppIdx++];
+            const usedIdx = allOpps.indexOf(candidate);
+            if (!seasonalUsed.has(usedIdx - (oppIdx-1-usedIdx))) {
+              opp = candidate;
+              break;
+            }
+            opp = candidate;
+            break;
+          }
+        }
+
+        if (!opp) break;
+
+        const seasonMon = opp.seasonMon ? MONTH_IDX[opp.seasonMon] ?? null : null;
+        const funnel = opp.type === 'refresh'
+          ? inferFunnel(opp.keyword)
+          : inferFunnel(opp.keyword);
+
+        const slotForRationale = seasonalAssignments.has(mi) ? mi : null;
+
+        calendar.push({
+          id:              uid(),
+          priority:        priority++,
+          month:           month,
+          contentType:     opp.type === 'refresh' ? 'Content Refresh' : 'Content Outline',
+          status:          'Topic Proposed',
+          liveUrl:         opp.type === 'refresh' ? (opp.url || 'NEW') : 'NEW',
+          funnelStage:     funnel.stage,
+          funnelSub:       funnel.sub,
+          topic:           opp.type === 'refresh'
+                             ? `Refresh: ${opp.keyword.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')}`
+                             : opp.keyword.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' '),
+          targetKeyword:   opp.keyword,
+          kd:              opp.kd || '',
+          volume:          opp.volume || '',
+          currentPosition: opp.type === 'refresh' ? (opp.position || '') : (opp.currentPosition || ''),
+          painPoint:       inferPainPoint(opp.keyword, personas),
+          trafficPotential:opp.trafficPotential || '',
+          growth12mo:      opp.growth || '',
+          forecast12mo:    opp.forecast || '',
+          deliverableType: inferDeliverable(opp.type, opp.keyword, opp.volume),
+          rationale:       buildRationale(opp, slotForRationale, seasonMon),
+          notes:           opp.type === 'refresh'
+                             ? `Impressions: ${fmtVol(opp.impressions)} | Sessions: ${fmtVol(opp.sessions)} | Backlinks: ${opp.backlinks}`
+                             : 'Internal link to: [update with existing URLs]'
+        });
+      }
+    }
+
+    // Pad remaining slots if fewer opps than slots
+    const monthsArr = getMonthRange(startMonth, numMonths);
+    while (calendar.length < slots) {
+      const mIdx = Math.floor(calendar.length / contentPerMonth);
+      calendar.push({
+        id: uid(), priority: priority++,
+        month: monthsArr[mIdx] || monthsArr[monthsArr.length-1],
+        contentType:'Content Outline', status:'Topic Proposed', liveUrl:'NEW',
+        funnelStage:'TOFU', funnelSub:'Awareness',
+        topic:'', targetKeyword:'', kd:'', volume:'', currentPosition:'',
+        painPoint:'', trafficPotential:'', growth12mo:'', forecast12mo:'',
+        deliverableType:'New Utility Post (~1,500 words)',
+        rationale:'STRATEGY: ', notes:''
+      });
+    }
+
+    return calendar;
+  }
+
+  /* ════════════════════════════════════════════════════
+     DEMO DATA  (travel industry example)
+  ════════════════════════════════════════════════════ */
+  function getDemoCalendar(startMonth, numMonths, contentPerMonth) {
+    const months = getMonthRange(startMonth, numMonths);
+    const rows = [
+      {kw:'best time to visit Iceland',   type:'new',     vol:18100, kd:32, tp:42000, gr:14,  fore:11,  funnel:'TOFU',  sub:'Awareness',      pos:''},
+      {kw:'Iceland vs Norway travel',     type:'new',     vol:8100,  kd:28, tp:19000, gr:8,   fore:6,   funnel:'MOFU',  sub:'Consideration',  pos:''},
+      {kw:'Iceland northern lights',      type:'new',     vol:27000, kd:45, tp:61000, gr:22,  fore:18,  funnel:'TOFU',  sub:'Interest',       pos:''},
+      {kw:'Iceland self-drive vs guided', type:'new',     vol:3600,  kd:18, tp:7800,  gr:5,   fore:4,   funnel:'BOFU',  sub:'Decision',       pos:''},
+      {kw:'Iceland packing list',         type:'new',     vol:12000, kd:29, tp:28000, gr:3,   fore:2,   funnel:'MOFU',  sub:'Consideration',  pos:''},
+      {kw:'7 day Iceland itinerary',      type:'new',     vol:9900,  kd:38, tp:22000, gr:12,  fore:9,   funnel:'MOFU',  sub:'Intent',         pos:''},
+      {kw:'hidden gems Iceland 2025',     type:'new',     vol:4400,  kd:22, tp:9500,  gr:31,  fore:28,  funnel:'TOFU',  sub:'Interest',       pos:''},
+      {kw:'how much does Iceland cost',   type:'new',     vol:14800, kd:34, tp:33000, gr:7,   fore:5,   funnel:'MOFU',  sub:'Intent',         pos:''},
+      {kw:'/blog/iceland-travel-guide',   type:'refresh', vol:0,     kd:0,  tp:0,     gr:0,   fore:0,   funnel:'MOFU',  sub:'Consideration',  pos:14,  imp:38000, ses:1200, bl:42},
+      {kw:'best Iceland tours 2025',      type:'new',     vol:6600,  kd:40, tp:15000, gr:9,   fore:7,   funnel:'BOFU',  sub:'Decision',       pos:''},
+      {kw:'/tours/ring-road',             type:'refresh', vol:0,     kd:0,  tp:0,     gr:0,   fore:0,   funnel:'BOFU',  sub:'Conversion',     pos:18,  imp:21000, ses:740,  bl:29},
+      {kw:'Iceland in December',          type:'new',     vol:7200,  kd:26, tp:16500, gr:18,  fore:15,  funnel:'TOFU',  sub:'Awareness',      pos:''},
+    ];
+
+    const slots = numMonths * contentPerMonth;
+    const calendar = [];
+    for (let i = 0; i < Math.min(slots, rows.length); i++) {
+      const r = rows[i];
+      const mIdx = Math.floor(i / contentPerMonth);
+      const month = months[mIdx] || months[months.length-1];
+      const isRefresh = r.type === 'refresh';
+      calendar.push({
+        id: uid(), priority: i+1, month,
+        contentType:     isRefresh ? 'Content Refresh' : 'Content Outline',
+        status:          'Topic Proposed',
+        liveUrl:         isRefresh ? r.kw : 'NEW',
+        funnelStage:     r.funnel, funnelSub: r.sub,
+        topic: isRefresh
+          ? `Refresh: ${r.kw.split('/').pop()?.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) || r.kw}`
+          : r.kw.replace(/\b\w/g,c=>c.toUpperCase()),
+        targetKeyword:   isRefresh ? r.kw.split('/').pop()?.replace(/-/g,' ') || '' : r.kw,
+        kd:              r.kd || '',
+        volume:          r.vol || '',
+        currentPosition: r.pos || '',
+        painPoint:       inferPainPoint(r.kw, []),
+        trafficPotential:r.tp || '',
+        growth12mo:      r.gr || '',
+        forecast12mo:    r.fore || '',
+        deliverableType: inferDeliverable(r.type, r.kw, r.vol),
+        rationale: isRefresh
+          ? (r.pos >= 11 && r.pos <= 20
+              ? `METRIC: Striking-distance pos ${r.pos} — refresh copy & meta to break page 1.`
+              : `METRIC: ${Math.round((r.imp||0)/(r.ses||1))}:1 impression-to-click gap; H1/title misalignment likely.`)
+          : (r.gr > 15
+              ? `SEASONALITY: +${r.gr}% growth trend — publish ahead of peak to capture surge.`
+              : `METRIC: KD ${r.kd} + ${fmtVol(r.vol)}/mo volume = strong organic opportunity with manageable difficulty.`),
+        notes: isRefresh
+          ? `Impressions: ${fmtVol(r.imp)} | Sessions: ${fmtVol(r.ses)} | Backlinks: ${r.bl} — protect link equity`
+          : 'Internal link target: Iceland hub page. Persona: Research-phase traveler.'
+      });
+    }
+    return calendar;
+  }
+
+  /* ════════════════════════════════════════════════════
+     BADGE HELPERS
+  ════════════════════════════════════════════════════ */
+  function statusBadgeHtml(status) {
+    const map = {
+      'Topic Proposed':      's-proposed',
+      'Topic Approved':      's-approved',
+      'Topic Rejected':      's-rejected',
+      'Outline in Progress': 's-outline',
+      'Writing in Progress': 's-writing',
+      'Content Review':      's-review',
+      'Content Published':   's-published'
+    };
+    return `<span class="status-badge ${map[status]||'s-proposed'}">${escapeHtml(status)}</span>`;
+  }
+
+  function funnelBadgeHtml(stage, sub) {
+    const cls = stage==='TOFU'?'f-tofu': stage==='MOFU'?'f-mofu':'f-bofu';
+    return `<div class="funnel-badge"><span class="funnel-stage ${cls}">${stage}</span><span class="funnel-sub">${escapeHtml(sub||'')}</span></div>`;
+  }
+
+  function typeBadgeHtml(type) {
+    const map = { 'Content Outline':'t-outline', 'Content Refresh':'t-refresh', 'AI Generated Content':'t-ai' };
+    const icons = { 'Content Outline':'📝', 'Content Refresh':'🔄', 'AI Generated Content':'✨' };
+    return `<span class="type-badge ${map[type]||'t-outline'}">${icons[type]||'📝'} ${escapeHtml(type)}</span>`;
+  }
+
+  function rationaleTagHtml(text) {
+    const t = text || '';
+    if (t.startsWith('SEASONALITY')) return `<span class="rationale-tag r-seasonality">SEASONALITY</span>${escapeHtml(t.replace(/^SEASONALITY:\s*/,''))}`;
+    if (t.startsWith('METRIC'))      return `<span class="rationale-tag r-metric">METRIC</span>${escapeHtml(t.replace(/^METRIC:\s*/,''))}`;
+    if (t.startsWith('STRATEGY'))    return `<span class="rationale-tag r-strategy">STRATEGY</span>${escapeHtml(t.replace(/^STRATEGY:\s*/,''))}`;
+    return escapeHtml(t);
+  }
+
+  function kdChip(kd) {
+    if (!kd && kd !== 0) return '—';
+    const n = parseInt(kd);
+    if (isNaN(n)) return escapeHtml(String(kd));
+    const cls = n < 30 ? 'kd-low' : n < 60 ? 'kd-mid' : 'kd-high';
+    return `<span class="kd-chip ${cls}">${n}</span>`;
+  }
+
+  function growthHtml(val) {
+    if (!val && val !== 0) return '—';
+    const n = parseFloat(val);
+    if (isNaN(n)) return '—';
+    const cls = n >= 0 ? 'growth-positive' : 'growth-negative';
+    return `<span class="${cls}">${n>0?'+':''}${n.toFixed(0)}%</span>`;
+  }
+
+  /* ════════════════════════════════════════════════════
+     RENDER — STEP 1
+  ════════════════════════════════════════════════════ */
+  function renderStep1() {
+    const c = state.client;
+    return `
+    <div class="page-content">
+      <div class="eyebrow">Step 1 of 3</div>
+      <h1 class="page-title">Client Setup</h1>
+      <p class="page-sub">Enter basic information about your client engagement to configure the calendar scaffold.</p>
+
+      <div class="card">
+        <div class="card-title">
+          <span class="card-title-icon">🏢</span> Client Information
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Client Name <span class="req">*</span></label>
+            <input class="form-input" id="f-name" type="text" value="${escapeHtml(c.name)}" placeholder="e.g. Adventure Wanderer Co." />
+          </div>
+          <div class="form-group">
+            <label>Website URL <span class="req">*</span></label>
+            <input class="form-input" id="f-url" type="url" value="${escapeHtml(c.url)}" placeholder="https://www.example.com" />
+          </div>
+          <div class="form-group">
+            <label>Industry <span class="req">*</span></label>
+            <select class="form-select" id="f-industry">
+              ${['Travel & Tourism','Hospitality & Hotels','Tour Operators','Outdoor & Adventure','Vacation Rentals',
+                 'Cruise Lines','Airlines & Airports','Transportation','Food & Dining','Retail & E-Commerce',
+                 'Healthcare','Finance','Technology','Education','Real Estate','Other'].map(i =>
+                `<option value="${i}" ${c.industry===i?'selected':''}>${i}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span class="card-title-icon">📅</span> Calendar Configuration
+        </div>
+        <div class="form-grid-3">
+          <div class="form-group">
+            <label>Starting Month <span class="req">*</span></label>
+            <input class="form-input" id="f-start" type="month" value="${c.startMonth || ''}" />
+          </div>
+          <div class="form-group">
+            <label>Number of Months</label>
+            <select class="form-select" id="f-months">
+              ${[3,4,5,6,7,8,9,10,11,12].map(n =>
+                `<option value="${n}" ${c.numMonths==n?'selected':''}>${n} months</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Content Pieces / Month</label>
+            <select class="form-select" id="f-cpp">
+              ${[1,2,3,4,5,6,7,8].map(n =>
+                `<option value="${n}" ${c.contentPerMonth==n?'selected':''}>${n} piece${n>1?'s':''}/mo</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="info-box">
+          <strong>Total pieces:</strong> <span id="total-pieces">${(c.numMonths||6) * (c.contentPerMonth||2)}</span> content items will be generated across <span id="total-months">${c.numMonths||6}</span> months.
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="handleStep1Next()">
+          Next: Upload Documents →
+        </button>
+      </div>
+    </div>`;
+  }
+
+  /* ════════════════════════════════════════════════════
+     RENDER — STEP 2
+  ════════════════════════════════════════════════════ */
+  function renderStep2() {
+    const f = state.files;
+    function zone(key, title, hint, required, icon) {
+      const loaded = !!f[key];
+      const fname  = loaded ? f[key].name : '';
+      const count  = state.parsed[key] ? state.parsed[key].length : null;
+      const countHtml = loaded && count !== null
+        ? count > 0
+          ? `<div class="upload-filename">✓ ${escapeHtml(fname)} — <strong>${count} rows</strong> parsed</div>`
+          : `<div class="upload-filename" style="color:var(--amber)">⚠ ${escapeHtml(fname)} — 0 rows detected. Check column headers match expected format.</div>`
+        : '';
+      return `<div class="upload-zone ${loaded?'loaded':''}" id="zone-${key}"
+          ondragover="handleDragOver(event,'${key}')" ondragleave="handleDragLeave('${key}')"
+          ondrop="handleDrop(event,'${key}')">
+        <input type="file" accept=".csv,.tsv,.txt,.xlsx" onchange="handleFileInput(event,'${key}')" />
+        <div class="upload-icon">${icon}</div>
+        <div class="upload-title">${title} ${required?'<span class="upload-badge badge-required">Required</span>':'<span class="upload-badge badge-optional">Optional</span>'}</div>
+        <div class="upload-hint">${hint}</div>
+        ${countHtml}
+      </div>`;
+    }
+    return `
+    <div class="page-content">
+      <div class="eyebrow">Step 2 of 3</div>
+      <h1 class="page-title">Upload Research Documents</h1>
+      <p class="page-sub">Upload your SEO research exports as CSV files. The engine will parse, prioritize, and generate the calendar automatically.</p>
+
+      <div class="card">
+        <div class="card-title"><span class="card-title-icon">📊</span> Core Documents</div>
+        <div class="upload-grid">
+          ${zone('personas',        'Customer Persona Analysis',  'CSV: persona name, JTBDs, search patterns',         false, '👤')}
+          ${zone('keywords',        'Keyword Gap Analysis',       'CSV: keyword, volume, KD, competitor rankings',     true,  '🔑')}
+          ${zone('contentAnalysis', 'Content Analysis',           'CSV: URLs already prioritized for refresh (off-limits for new recommendations)', false, '📋')}
+          ${zone('wqa',             'Website Quality Assessment', 'CSV: URL, impressions, sessions, backlinks, position, word count', false, '📈')}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="card-title-icon">🔍</span> Ahrefs Export</div>
+        <div class="upload-grid">
+          <div class="upload-optional">
+            ${zone('ahrefs', 'Ahrefs Keyword Export', 'CSV: keyword, US KD, volume, traffic potential, growth %, 12mo forecast', false, '📡')}
+          </div>
+        </div>
+        <div class="info-box">
+          <strong>Tip:</strong> Upload the Ahrefs export to enrich keyword data with traffic potential and growth forecasts. Without it, the engine uses data from the Keyword Gap Analysis only.
+        </div>
+      </div>
+
+      <div class="demo-banner">
+        <div>
+          <p><strong>No files yet?</strong> Use demo data to preview a travel industry editorial calendar and explore the full interface.</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleDemoData()">⚡ Use Demo Data</button>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goToStep(1)">← Back</button>
+        <button class="btn btn-primary" onclick="handleGenerate()">
+          Generate Calendar →
+        </button>
+      </div>
+    </div>`;
+  }
+
+  /* ════════════════════════════════════════════════════
+     RENDER — STEP 3 (CALENDAR)
+  ════════════════════════════════════════════════════ */
+  function renderStep3() {
+    const cal = filteredCalendar();
+    const all = state.calendar;
+
+    const uniqueMonths = [...new Set(all.map(r=>r.month))];
+    const statuses     = ['Topic Proposed','Topic Approved','Topic Rejected','Outline in Progress','Writing in Progress','Content Review','Content Published'];
+    const contentTypes = ['Content Outline','Content Refresh','AI Generated Content'];
+    const funnelStages = ['TOFU','MOFU','BOFU'];
+
+    const totalVol = all.reduce((s,r)=>s+(parseInt(r.volume)||0),0);
+    const newCount = all.filter(r=>r.liveUrl==='NEW').length;
+    const refreshCount = all.filter(r=>r.contentType==='Content Refresh').length;
+    const publishedCount = all.filter(r=>r.status==='Content Published').length;
+
+    const tableHtml = cal.length === 0
+      ? `<div class="empty-state">
+           <div class="empty-state-icon">📭</div>
+           <h3>No rows match your filters</h3>
+           <p>Try adjusting the filter dropdowns above.</p>
+         </div>`
+      : `<div class="table-scroll-wrapper">
+          <table class="cal-table">
+            <thead><tr>
+              <th class="col-priority">#</th>
+              <th class="col-month">Month</th>
+              <th class="col-type">Content Type</th>
+              <th class="col-status">Status</th>
+              <th class="col-url">Live URL</th>
+              <th class="col-funnel">Funnel</th>
+              <th class="col-topic">Topic (H1)</th>
+              <th class="col-kw">Target Keyword</th>
+              <th class="col-kd">KD</th>
+              <th class="col-volume">Volume</th>
+              <th class="col-position">Position</th>
+              <th class="col-pain">Pain Point</th>
+              <th class="col-tp">Traffic Pot.</th>
+              <th class="col-growth">Growth 12mo</th>
+              <th class="col-forecast">Forecast</th>
+              <th class="col-deliverable">Deliverable</th>
+              <th class="col-rationale">Priority Rationale</th>
+              <th class="col-notes">Notes</th>
+              <th class="col-actions"></th>
+            </tr></thead>
+            <tbody id="cal-tbody">
+              ${cal.map(row => renderRow(row)).join('')}
+              <tr class="add-row-tr">
+                <td colspan="19">
+                  <button class="add-row-btn" onclick="handleAddRow()">+ Add Row</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>`;
+
+    return `
+    <div class="page-content wide">
+      <div class="stats-bar">
+        <div class="stat-item pink">
+          <div class="stat-value">${all.length}</div>
+          <div class="stat-label">Total Pieces</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${newCount}</div>
+          <div class="stat-label">Net New</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${refreshCount}</div>
+          <div class="stat-label">Refreshes</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${fmtVol(totalVol)}</div>
+          <div class="stat-label">Total Keyword Vol</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">${publishedCount}</div>
+          <div class="stat-label">Published</div>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost btn-sm" onclick="goToStep(2)">← Edit Inputs</button>
+      </div>
+
+      <div class="cal-toolbar">
+        <div class="left">
+          <select class="cal-filter-select" onchange="state.filter.month=this.value||'all';renderApp()" id="fil-month">
+            <option value="all">All Months</option>
+            ${uniqueMonths.map(m=>`<option value="${m}" ${state.filter.month===m?'selected':''}>${m}</option>`).join('')}
+          </select>
+          <select class="cal-filter-select" onchange="state.filter.status=this.value||'all';renderApp()" id="fil-status">
+            <option value="all">All Statuses</option>
+            ${statuses.map(s=>`<option value="${s}" ${state.filter.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <select class="cal-filter-select" onchange="state.filter.type=this.value||'all';renderApp()" id="fil-type">
+            <option value="all">All Types</option>
+            ${contentTypes.map(t=>`<option value="${t}" ${state.filter.type===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+          <select class="cal-filter-select" onchange="state.filter.funnel=this.value||'all';renderApp()" id="fil-funnel">
+            <option value="all">All Funnel Stages</option>
+            ${funnelStages.map(f=>`<option value="${f}" ${state.filter.funnel===f?'selected':''}>${f}</option>`).join('')}
+          </select>
+          <span class="cal-count">${cal.length} of ${all.length} rows</span>
+        </div>
+        <div class="right">
+          <button class="btn btn-secondary btn-sm" onclick="handleExportCSV()">↓ CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="handleExportJSON()">↓ JSON</button>
+          <button class="btn btn-primary btn-sm" onclick="handleAddRow()">+ Add Row</button>
+        </div>
+      </div>
+
+      ${tableHtml}
+    </div>`;
+  }
+
+  function filteredCalendar() {
+    return state.calendar.filter(r => {
+      const { month, status, type, funnel } = state.filter;
+      return (month  === 'all' || r.month        === month)
+          && (status === 'all' || r.status        === status)
+          && (type   === 'all' || r.contentType   === type)
+          && (funnel === 'all' || r.funnelStage   === funnel);
+    });
+  }
+
+  /* ════════════════════════════════════════════════════
+     RENDER ROW
+  ════════════════════════════════════════════════════ */
+  function renderRow(row) {
+    const {id} = row;
+    const statuses     = ['Topic Proposed','Topic Approved','Topic Rejected','Outline in Progress','Writing in Progress','Content Review','Content Published'];
+    const contentTypes = ['Content Outline','Content Refresh','AI Generated Content'];
+    const funnelStages = ['TOFU','MOFU','BOFU'];
+    const funnelSubs   = { TOFU:['Awareness','Interest'], MOFU:['Consideration','Intent'], BOFU:['Decision','Conversion'] };
+    const months       = getMonthRange(state.client.startMonth, state.client.numMonths);
+
+    const urlDisplay = row.liveUrl === 'NEW'
+      ? `<span class="url-new">NEW</span>`
+      : `<a href="${escapeHtml(row.liveUrl)}" class="url-cell" target="_blank" title="${escapeHtml(row.liveUrl)}">${escapeHtml(row.liveUrl.replace(/^https?:\/\/[^/]+/,'').substring(0,25) || row.liveUrl.substring(0,25))}…</a>`;
+
+    return `<tr data-row-id="${id}">
+      <td class="col-priority"><span class="priority-num">${row.priority}</span></td>
+
+      <td class="col-month">
+        <select class="cell-select" onchange="updateRow('${id}','month',this.value)">
+          ${months.map(m=>`<option value="${m}" ${row.month===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </td>
+
+      <td class="col-type">
+        <select class="cell-select" onchange="updateRow('${id}','contentType',this.value)">
+          ${contentTypes.map(t=>`<option value="${t}" ${row.contentType===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </td>
+
+      <td class="col-status">
+        <select class="cell-select" onchange="updateRow('${id}','status',this.value)">
+          ${statuses.map(s=>`<option value="${s}" ${row.status===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </td>
+
+      <td class="col-url">
+        <span class="editable" contenteditable="true"
+          onblur="updateRow('${id}','liveUrl',this.textContent.trim())"
+          data-field="liveUrl">${escapeHtml(row.liveUrl)}</span>
+      </td>
+
+      <td class="col-funnel">
+        <select class="cell-select" onchange="updateFunnel('${id}',this.value)">
+          ${funnelStages.map(f=>`<option value="${f}" ${row.funnelStage===f?'selected':''}>${f}</option>`).join('')}
+        </select>
+        <select class="cell-select" style="margin-top:3px" onchange="updateRow('${id}','funnelSub',this.value)">
+          ${(funnelSubs[row.funnelStage]||['Awareness']).map(s=>`<option value="${s}" ${row.funnelSub===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </td>
+
+      <td class="col-topic">
+        <span class="editable" contenteditable="true"
+          onblur="updateRow('${id}','topic',this.textContent.trim())">${escapeHtml(row.topic)}</span>
+      </td>
+
+      <td class="col-kw">
+        <span class="editable" contenteditable="true"
+          onblur="updateRow('${id}','targetKeyword',this.textContent.trim())">${escapeHtml(row.targetKeyword)}</span>
+      </td>
+
+      <td class="col-kd" style="text-align:center">
+        <span class="editable" contenteditable="true" style="text-align:center"
+          onblur="updateRow('${id}','kd',this.textContent.trim())">${kdChip(row.kd)}</span>
+      </td>
+
+      <td class="col-volume" style="text-align:right">
+        <span class="editable" contenteditable="true" style="text-align:right"
+          onblur="updateRow('${id}','volume',this.textContent.trim())">${fmtVol(row.volume)}</span>
+      </td>
+
+      <td class="col-position" style="text-align:center">
+        <span class="editable" contenteditable="true" style="text-align:center"
+          onblur="updateRow('${id}','currentPosition',this.textContent.trim())">${escapeHtml(String(row.currentPosition||'—'))}</span>
+      </td>
+
+      <td class="col-pain">
+        <span class="editable" contenteditable="true"
+          onblur="updateRow('${id}','painPoint',this.textContent.trim())">${escapeHtml(row.painPoint)}</span>
+      </td>
+
+      <td class="col-tp" style="text-align:right">
+        <span class="editable" contenteditable="true" style="text-align:right"
+          onblur="updateRow('${id}','trafficPotential',this.textContent.trim())">${fmtVol(row.trafficPotential)}</span>
+      </td>
+
+      <td class="col-growth" style="text-align:right">
+        <span class="editable" contenteditable="true" style="text-align:right"
+          onblur="updateRow('${id}','growth12mo',this.textContent.trim())">${growthHtml(row.growth12mo)}</span>
+      </td>
+
+      <td class="col-forecast" style="text-align:right">
+        <span class="editable" contenteditable="true" style="text-align:right"
+          onblur="updateRow('${id}','forecast12mo',this.textContent.trim())">${growthHtml(row.forecast12mo)}</span>
+      </td>
+
+      <td class="col-deliverable">
+        <span class="editable" contenteditable="true"
+          onblur="updateRow('${id}','deliverableType',this.textContent.trim())">${escapeHtml(row.deliverableType)}</span>
+      </td>
+
+      <td class="col-rationale">
+        <span class="editable" contenteditable="true" style="font-size:0.73rem;line-height:1.35"
+          onblur="updateRow('${id}','rationale',this.textContent.trim())">${rationaleTagHtml(row.rationale)}</span>
+      </td>
+
+      <td class="col-notes">
+        <span class="editable" contenteditable="true" style="font-size:0.73rem;line-height:1.35"
+          onblur="updateRow('${id}','notes',this.textContent.trim())">${escapeHtml(row.notes)}</span>
+      </td>
+
+      <td class="col-actions">
+        <button class="btn-danger" onclick="handleDeleteRow('${id}')" title="Delete row">✕</button>
+      </td>
+    </tr>`;
+  }
+
+  /* ════════════════════════════════════════════════════
+     MAIN RENDER
+  ════════════════════════════════════════════════════ */
+  function renderApp() {
+    const app = document.getElementById('app');
+
+    // Update progress bar
+    ['ps-1','ps-2','ps-3'].forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.className = 'progress-step' +
+        (state.step === i+1 ? ' active' : state.step > i+1 ? ' done' : '');
+    });
+
+    // Update header client name
+    const hc = document.getElementById('header-client');
+    if (hc) hc.textContent = state.client.name
+      ? `${state.client.name}  ·  ${state.client.industry}`
+      : '';
+
+    switch(state.step) {
+      case 1: app.innerHTML = renderStep1(); attachStep1(); break;
+      case 2: app.innerHTML = renderStep2(); break;
+      case 3: app.innerHTML = renderStep3(); break;
+    }
+
+    saveState();
+  }
+
+  /* ════════════════════════════════════════════════════
+     STEP 1 LIVE UPDATING
+  ════════════════════════════════════════════════════ */
+  function attachStep1() {
+    const update = () => {
+      const nm = parseInt(document.getElementById('f-months')?.value) || 6;
+      const cp = parseInt(document.getElementById('f-cpp')?.value) || 2;
+      const tp = document.getElementById('total-pieces');
+      const tm = document.getElementById('total-months');
+      if (tp) tp.textContent = nm * cp;
+      if (tm) tm.textContent = nm;
+    };
+    document.getElementById('f-months')?.addEventListener('change', update);
+    document.getElementById('f-cpp')?.addEventListener('change', update);
+  }
+
+  /* ════════════════════════════════════════════════════
+     EVENT HANDLERS
+  ════════════════════════════════════════════════════ */
+  function goToStep(n) {
+    state.step = n;
+    renderApp();
+    window.scrollTo(0,0);
+  }
+
+  function handleStep1Next() {
+    const name = document.getElementById('f-name')?.value?.trim();
+    const url  = document.getElementById('f-url')?.value?.trim();
+    const start= document.getElementById('f-start')?.value;
+    if (!name) { toast('Please enter the client name.'); return; }
+    if (!start){ toast('Please select a starting month.'); return; }
+    state.client = {
+      name,
+      url:             document.getElementById('f-url')?.value?.trim() || '',
+      industry:        document.getElementById('f-industry')?.value || 'Travel & Tourism',
+      startMonth:      start,
+      numMonths:       parseInt(document.getElementById('f-months')?.value) || 6,
+      contentPerMonth: parseInt(document.getElementById('f-cpp')?.value) || 2
+    };
+    goToStep(2);
+  }
+
+  function handleFileInput(event, key) {
+    const file = event.target.files[0];
+    if (!file) return;
+    state.files[key] = file;
+    const file_reader = new FileReader();
+    file_reader.onload = e => {
+      parseFile(key, e.target.result);
+      renderApp();
+    };
+    file_reader.readAsText(file);
+  }
+
+  function handleDragOver(event, key) {
+    event.preventDefault();
+    document.getElementById(`zone-${key}`)?.classList.add('drag-over');
+  }
+
+  function handleDragLeave(key) {
+    document.getElementById(`zone-${key}`)?.classList.remove('drag-over');
+  }
+
+  function handleDrop(event, key) {
+    event.preventDefault();
+    handleDragLeave(key);
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    state.files[key] = file;
+    const fr = new FileReader();
+    fr.onload = e => { parseFile(key, e.target.result); renderApp(); };
+    fr.readAsText(file);
+  }
+
+  function parseFile(key, text) {
+    const parsers = {
+      keywords:        parseKeywords,
+      wqa:             parseWQA,
+      contentAnalysis: parseContentAnalysis,
+      personas:        parsePersonas,
+      ahrefs:          parseAhrefs
+    };
+    if (parsers[key]) {
+      state.parsed[key] = parsers[key](text);
+      toast(`✓ Parsed ${state.parsed[key].length} rows from ${key}`);
+    }
+  }
+
+  function handleDemoData() {
+    const { startMonth, numMonths, contentPerMonth } = state.client;
+    state.calendar = getDemoCalendar(startMonth, numMonths, contentPerMonth);
+    state.step = 3;
+    renderApp();
+    toast('⚡ Demo data loaded — travel industry example');
+  }
+
+  function handleGenerate() {
+    const hasData = state.parsed.keywords.length > 0 || state.parsed.wqa.length > 0;
+    if (!hasData) {
+      // Run demo if no files uploaded
+      handleDemoData();
+      return;
+    }
+    state.calendar = generateCalendar();
+    goToStep(3);
+    toast(`✓ Generated ${state.calendar.length} calendar entries`);
+  }
+
+  function handleAddRow() {
+    const months = getMonthRange(state.client.startMonth, state.client.numMonths);
+    const lastMonth = state.calendar.length > 0
+      ? state.calendar[state.calendar.length-1].month
+      : (months[0] || 'Jan 2025');
+    state.calendar.push({
+      id: uid(),
+      priority: state.calendar.length + 1,
+      month: lastMonth,
+      contentType: 'Content Outline',
+      status: 'Topic Proposed',
+      liveUrl: 'NEW',
+      funnelStage: 'TOFU', funnelSub: 'Awareness',
+      topic: '', targetKeyword: '',
+      kd: '', volume: '', currentPosition: '',
+      painPoint: '', trafficPotential: '',
+      growth12mo: '', forecast12mo: '',
+      deliverableType: 'New Utility Post (~1,500 words)',
+      rationale: 'STRATEGY: ',
+      notes: ''
+    });
+    renderApp();
+    // Scroll to bottom of table
+    const wrapper = document.querySelector('.table-scroll-wrapper');
+    if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
+  }
+
+  function handleDeleteRow(id) {
+    state.calendar = state.calendar.filter(r => r.id !== id);
+    // Re-number priorities
+    state.calendar.forEach((r, i) => r.priority = i + 1);
+    renderApp();
+  }
+
+  function updateRow(id, field, value) {
+    const row = state.calendar.find(r => r.id === id);
+    if (row) { row[field] = value; saveState(); }
+  }
+
+  function updateFunnel(id, stage) {
+    const row = state.calendar.find(r => r.id === id);
+    if (!row) return;
+    row.funnelStage = stage;
+    const subs = { TOFU:['Awareness','Interest'], MOFU:['Consideration','Intent'], BOFU:['Decision','Conversion'] };
+    row.funnelSub = subs[stage]?.[0] || 'Awareness';
+    // Re-render just this row to update sub-stage options
+    const tr = document.querySelector(`tr[data-row-id="${id}"]`);
+    if (tr) tr.outerHTML = renderRow(row);
+    saveState();
+  }
+
+  /* ════════════════════════════════════════════════════
+     EXPORT
+  ════════════════════════════════════════════════════ */
+  function handleExportCSV() {
+    const headers = ['Priority','Month','Content Type','Status','Live URL','Funnel Stage','Funnel Sub',
+      'Topic (H1)','Target Keyword','KD','Volume','Current Position','Pain Point',
+      'Traffic Potential','Growth 12mo%','Forecast 12mo','Deliverable Type','Priority Rationale','Notes'];
+    const rows = state.calendar.map(r => [
+      r.priority, r.month, r.contentType, r.status, r.liveUrl,
+      r.funnelStage, r.funnelSub, r.topic, r.targetKeyword,
+      r.kd, r.volume, r.currentPosition, r.painPoint,
+      r.trafficPotential, r.growth12mo, r.forecast12mo,
+      r.deliverableType, r.rationale, r.notes
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(c =>
+      `"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    download(csv, `${slugify(state.client.name)}-editorial-calendar.csv`, 'text/csv');
+    toast('✓ CSV downloaded');
+  }
+
+  function handleExportJSON() {
+    const data = {
+      generatedAt: new Date().toISOString(),
+      client: state.client,
+      calendar: state.calendar
+    };
+    download(JSON.stringify(data, null, 2),
+      `${slugify(state.client.name)}-editorial-calendar.json`,
+      'application/json');
+    toast('✓ JSON downloaded');
+  }
+
+  function download(content, filename, type) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type }));
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function slugify(str) {
+    return (str||'propellic').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'calendar';
+  }
+
+  /* ════════════════════════════════════════════════════
+     LOCAL STORAGE
+  ════════════════════════════════════════════════════ */
+  function saveState() {
+    try {
+      localStorage.setItem('propellic-ecb', JSON.stringify({
+        step: state.step,
+        client: state.client,
+        calendar: state.calendar,
+        filter: state.filter
+      }));
+    } catch(e) { /* storage full — ignore */ }
+  }
+
+  function loadState() {
+    try {
+      const saved = localStorage.getItem('propellic-ecb');
+      if (!saved) return;
+      const s = JSON.parse(saved);
+      if (s.client)   state.client   = { ...state.client,   ...s.client };
+      if (s.calendar) state.calendar = s.calendar;
+      if (s.filter)   state.filter   = { ...state.filter,   ...s.filter };
+      if (s.step)     state.step     = s.step;
+    } catch(e) { /* corrupt — ignore */ }
+  }
+
+  /* ════════════════════════════════════════════════════
+     INIT
+  ════════════════════════════════════════════════════ */
+  loadState();
+  renderApp();
+  </script>
+  <!-- owen: setup verified -->
+</body>
 </html>
