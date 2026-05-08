@@ -1149,146 +1149,193 @@
     return `STRATEGY: Fills identified keyword gap where competitors rank but client does not. Supports cluster authority building.`;
   }
 
+  function titleCase(str) {
+    return (str || '').trim().replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // Derive a readable keyword label from a URL slug when no topKeyword is available
+  function slugToKeyword(url) {
+    return (url || '')
+      .split('/').filter(Boolean).pop()
+      ?.replace(/[-_]/g, ' ')
+      .replace(/\.\w+$/, '')   // strip file extension
+      .trim() || url;
+  }
+
   function generateCalendar() {
     const { keywords, wqa, contentAnalysis, personas, ahrefs } = state.parsed;
     const { startMonth, numMonths, contentPerMonth } = state.client;
-    const months = getMonthRange(startMonth, numMonths);
-    const slots = numMonths * contentPerMonth;
+    const months     = getMonthRange(startMonth, numMonths);
+    const totalSlots = numMonths * contentPerMonth;
 
-    // Merge Ahrefs data into keywords if available
+    /* ── 1. Merge Ahrefs enrichment into keyword gap data ── */
     const mergedKeywords = keywords.map(kw => {
       const ah = ahrefs.find(a => a.keyword.toLowerCase() === kw.keyword.toLowerCase());
-      return ah ? { ...kw, kd: ah.kd || kw.kd, volume: ah.volume || kw.volume,
-                    trafficPotential: ah.trafficPotential || kw.trafficPotential,
-                    growth: ah.growth || kw.growth, forecast: ah.forecast || kw.forecast } : kw;
+      if (!ah) return kw;
+      return {
+        ...kw,
+        kd:              ah.kd              ?? kw.kd,
+        volume:          ah.volume          || kw.volume,
+        trafficPotential:ah.trafficPotential|| kw.trafficPotential,
+        growth:          ah.growth          ?? kw.growth,
+        forecast:        ah.forecast        ?? kw.forecast
+      };
+    });
+
+    /* ── 2. Build keyword lookup so refresh rows can inherit metrics ── */
+    const kwLookup = new Map();
+    mergedKeywords.forEach(kw => {
+      if (kw.keyword) kwLookup.set(kw.keyword.toLowerCase(), kw);
     });
 
     const offLimits  = new Set(contentAnalysis.map(r => normalizeUrl(r.url)));
     const allUrlsArr = wqa.map(r => r.url);
 
-    // New content opportunities — include ALL keywords regardless of whether volume was detected;
-    // scoring handles low-signal rows gracefully (they rank last)
+    /* ── 3. Score new-content opportunities ── */
     const newOpps = mergedKeywords
       .filter(kw => kw.keyword && kw.keyword.length > 1)
       .filter(kw => !hasCannibalizing(kw.keyword, allUrlsArr))
       .map(kw => ({
         type: 'new', ...kw,
-        score: scoreNewContent(kw),
+        score:     scoreNewContent(kw),
         seasonMon: detectSeasonality(kw.keyword)
-      }));
+      }))
+      .sort((a, b) => b.score - a.score);
 
-    // Refresh opportunities — include every WQA URL not in the off-limits set;
-    // the scoring function will rank higher-value refresh targets above weaker ones
+    /* ── 4. Score refresh opportunities & cross-reference keyword metrics ── */
     const refreshOpps = wqa
       .filter(u => !offLimits.has(normalizeUrl(u.url)))
       .filter(u => u.url && u.url.length > 0)
-      .map(u => ({
-        type: 'refresh', ...u,
-        score: scoreRefresh(u),
-        keyword: u.url.split('/').filter(Boolean).pop()?.replace(/-/g,' ') || u.url
-      }));
+      .map(u => {
+        // Prefer topKeyword from WQA; fall back to readable URL slug
+        const targetKw = (u.topKeyword && u.topKeyword.length > 0)
+          ? u.topKeyword
+          : slugToKeyword(u.url);
 
-    // Sort all by score
-    const allOpps = [...newOpps, ...refreshOpps].sort((a,b) => b.score - a.score);
+        // Cross-reference keyword data so refresh rows carry KD/Volume/TP/Growth/Forecast
+        const kwData = kwLookup.get(targetKw.toLowerCase());
 
-    // Assign to months — try to pair an anchor + complement each month
-    const calendar = [];
-    let priority = 1;
-    let oppIdx = 0;
+        return {
+          type:            'refresh',
+          ...u,
+          keyword:         targetKw,
+          score:           scoreRefresh(u),
+          // Keyword metrics from cross-reference (undefined if no match — show blank, not 0)
+          kd:              kwData?.kd,
+          volume:          kwData?.volume,
+          trafficPotential:kwData?.trafficPotential,
+          growth:          kwData?.growth,
+          forecast:        kwData?.forecast
+        };
+      })
+      .sort((a, b) => b.score - a.score);
 
-    // For seasonality: pre-assign seasonal keywords to their target month slot
-    const seasonalAssignments = new Map(); // slotIdx → opp
-    const seasonalUsed = new Set();
-
-    allOpps.forEach((opp, i) => {
-      if (opp.seasonMon) {
-        const targetSlot = seasonalPublishMonth(opp.seasonMon, startMonth, numMonths);
-        if (targetSlot !== null && !seasonalAssignments.has(targetSlot)) {
-          seasonalAssignments.set(targetSlot, { opp, idx: i });
-        }
+    /* ── 5. Pre-assign seasonal new-content keywords to target month slots ── */
+    const seasonalAssignments = new Map(); // month index → newOpps index
+    newOpps.forEach((opp, i) => {
+      if (!opp.seasonMon) return;
+      const slot = seasonalPublishMonth(opp.seasonMon, startMonth, numMonths);
+      if (slot !== null && !seasonalAssignments.has(slot)) {
+        seasonalAssignments.set(slot, i);
       }
     });
 
+    /* ── 6. Balanced calendar assembly: anchor + complement per month ──
+       Phase 2 rule: pair one anchor (highest-leverage) + one complement
+       (prefers opposite type or different funnel stage) each month.
+       This prevents refresh opps from monopolising all slots.
+    ── */
+    const usedOpps = new Set();
+    const calendar  = [];
+    let   priority  = 1;
+
+    function pickUnused(pool) {
+      return pool.find(o => !usedOpps.has(o)) || null;
+    }
+
     for (let mi = 0; mi < numMonths; mi++) {
-      const month = months[mi];
+      const month    = months[mi];
+      const monthBuf = [];
+
       for (let pi = 0; pi < contentPerMonth; pi++) {
-        const slotIdx = mi * contentPerMonth + pi;
         let opp = null;
 
-        // Try seasonal assignment for first slot of month
-        if (pi === 0 && seasonalAssignments.has(mi)) {
-          const sa = seasonalAssignments.get(mi);
-          if (!seasonalUsed.has(sa.idx)) {
-            opp = sa.opp;
-            seasonalUsed.add(sa.idx);
+        if (pi === 0) {
+          /* Anchor slot — seasonal keyword takes priority; otherwise highest-scoring overall */
+          if (seasonalAssignments.has(mi)) {
+            const si = seasonalAssignments.get(mi);
+            if (!usedOpps.has(newOpps[si])) opp = newOpps[si];
           }
-        }
-
-        // Otherwise take next best unused opp
-        if (!opp) {
-          while (oppIdx < allOpps.length) {
-            const candidate = allOpps[oppIdx++];
-            const usedIdx = allOpps.indexOf(candidate);
-            if (!seasonalUsed.has(usedIdx - (oppIdx-1-usedIdx))) {
-              opp = candidate;
-              break;
-            }
-            opp = candidate;
-            break;
+          if (!opp) {
+            const topNew = pickUnused(newOpps);
+            const topRef = pickUnused(refreshOpps);
+            if (topNew && topRef) opp = topNew.score >= topRef.score ? topNew : topRef;
+            else                  opp = topNew || topRef;
+          }
+        } else {
+          /* Complement slot — prefer opposite type to anchor; then different funnel stage */
+          const anchorType = monthBuf[0]?.type;
+          if (anchorType === 'refresh') {
+            opp = pickUnused(newOpps) || pickUnused(refreshOpps);
+          } else {
+            opp = pickUnused(refreshOpps) || pickUnused(newOpps);
           }
         }
 
         if (!opp) break;
+        usedOpps.add(opp);
+        monthBuf.push(opp);
+      }
 
-        const seasonMon = opp.seasonMon ? MONTH_IDX[opp.seasonMon] ?? null : null;
-        const funnel = opp.type === 'refresh'
-          ? inferFunnel(opp.keyword)
-          : inferFunnel(opp.keyword);
-
-        const slotForRationale = seasonalAssignments.has(mi) ? mi : null;
+      /* Push assembled month rows to calendar */
+      for (const opp of monthBuf) {
+        const seasonMon = opp.seasonMon ? (MONTH_IDX[opp.seasonMon] ?? null) : null;
+        const funnel    = inferFunnel(opp.keyword);
+        const isRefresh = opp.type === 'refresh';
 
         calendar.push({
-          id:              uid(),
-          priority:        priority++,
-          month:           month,
-          contentType:     opp.type === 'refresh' ? 'Content Refresh' : 'Content Outline',
-          status:          'Topic Proposed',
-          liveUrl:         opp.type === 'refresh' ? (opp.url || 'NEW') : 'NEW',
-          funnelStage:     funnel.stage,
-          funnelSub:       funnel.sub,
-          topic:           opp.type === 'refresh'
-                             ? `Refresh: ${opp.keyword.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')}`
-                             : opp.keyword.split(' ').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' '),
-          targetKeyword:   opp.keyword,
-          kd:              opp.kd || '',
-          volume:          opp.volume || '',
-          currentPosition: opp.type === 'refresh' ? (opp.position || '') : (opp.currentPosition || ''),
-          painPoint:       inferPainPoint(opp.keyword, personas),
-          trafficPotential:opp.trafficPotential || '',
-          growth12mo:      opp.growth || '',
-          forecast12mo:    opp.forecast || '',
-          deliverableType: inferDeliverable(opp.type, opp.keyword, opp.volume),
-          rationale:       buildRationale(opp, slotForRationale, seasonMon),
-          notes:           opp.type === 'refresh'
-                             ? `Impressions: ${fmtVol(opp.impressions)} | Sessions: ${fmtVol(opp.sessions)} | Backlinks: ${opp.backlinks}`
-                             : 'Internal link to: [update with existing URLs]'
+          id:               uid(),
+          priority:         priority++,
+          month,
+          contentType:      isRefresh ? 'Content Refresh' : 'Content Outline',
+          status:           'Topic Proposed',
+          liveUrl:          isRefresh ? (opp.url || 'NEW') : 'NEW',
+          funnelStage:      funnel.stage,
+          funnelSub:        funnel.sub,
+          topic:            isRefresh
+                              ? `Refresh: ${titleCase(opp.keyword)}`
+                              : titleCase(opp.keyword),
+          targetKeyword:    opp.keyword,
+          // Use ?? so numeric 0 is preserved; undefined → '' (truly unknown)
+          kd:               opp.kd              ?? '',
+          volume:           opp.volume           ?? '',
+          currentPosition:  isRefresh ? (opp.position ?? '') : (opp.currentPosition ?? ''),
+          painPoint:        inferPainPoint(opp.keyword, personas),
+          trafficPotential: opp.trafficPotential ?? '',
+          growth12mo:       opp.growth           ?? '',
+          forecast12mo:     opp.forecast          ?? '',
+          deliverableType:  inferDeliverable(opp.type, opp.keyword, opp.volume),
+          rationale:        buildRationale(opp, seasonalAssignments.has(mi) ? mi : null, seasonMon),
+          notes:            isRefresh
+                              ? `Impressions: ${fmtVol(opp.impressions)} | Sessions: ${fmtVol(opp.sessions)} | Backlinks: ${opp.backlinks}`
+                              : 'Internal link to: [update with existing URLs]'
         });
       }
     }
 
-    // Pad remaining slots if fewer opps than slots
-    const monthsArr = getMonthRange(startMonth, numMonths);
-    while (calendar.length < slots) {
+    /* ── 7. Pad any remaining slots ── */
+    const padMonths = getMonthRange(startMonth, numMonths);
+    while (calendar.length < totalSlots) {
       const mIdx = Math.floor(calendar.length / contentPerMonth);
       calendar.push({
         id: uid(), priority: priority++,
-        month: monthsArr[mIdx] || monthsArr[monthsArr.length-1],
-        contentType:'Content Outline', status:'Topic Proposed', liveUrl:'NEW',
-        funnelStage:'TOFU', funnelSub:'Awareness',
-        topic:'', targetKeyword:'', kd:'', volume:'', currentPosition:'',
-        painPoint:'', trafficPotential:'', growth12mo:'', forecast12mo:'',
-        deliverableType:'New Utility Post (~1,500 words)',
-        rationale:'STRATEGY: ', notes:''
+        month: padMonths[mIdx] || padMonths[padMonths.length - 1],
+        contentType: 'Content Outline', status: 'Topic Proposed', liveUrl: 'NEW',
+        funnelStage: 'TOFU', funnelSub: 'Awareness',
+        topic: '', targetKeyword: '', kd: '', volume: '', currentPosition: '',
+        painPoint: '', trafficPotential: '', growth12mo: '', forecast12mo: '',
+        deliverableType: 'New Utility Post (~1,500 words)',
+        rationale: 'STRATEGY: ', notes: ''
       });
     }
 
