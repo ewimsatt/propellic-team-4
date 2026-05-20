@@ -522,6 +522,12 @@
       background: rgba(226,26,107,0.06);
       outline: none;
     }
+    /* Placeholder for empty editable spans */
+    .editable:empty::before {
+      content: attr(data-placeholder);
+      color: var(--text-muted);
+      font-style: italic;
+    }
 
     /* Inline select */
     .cell-select {
@@ -900,20 +906,46 @@
     return isNaN(n) ? null : n;
   }
 
+  /* Scan the first 10 rows and pick the one that looks most like a header row
+     by counting how many cells match any of the known header tokens. Real headers
+     beat section titles ("ORGANIC OPPORTUNITY ANALYSIS") and source labels
+     ("SEM Rush, GSC, Manual") because they contain more recognized column names. */
+  function findHeaderRow(data, tokens) {
+    const tok = tokens.map(t => t.toLowerCase());
+    let bestIdx = 0, bestScore = -1;
+    const limit = Math.min(10, data.length);
+    for (let i = 0; i < limit; i++) {
+      const row = data[i] || [];
+      const score = row.reduce((s, cell) => {
+        const v = String(cell || '').toLowerCase().trim().replace(/['"]/g,'');
+        if (!v) return s;
+        return s + (tok.some(t => v === t || v.startsWith(t + ' ') || v.includes(' ' + t))  ? 1 : 0);
+      }, 0);
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    }
+    console.log(`[ECB] findHeaderRow picked row ${bestIdx} (score ${bestScore})`);
+    return bestScore >= 2 ? bestIdx : 0;
+  }
+
   function parseKeywords(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
-    const h = data[0];
+    const headerIdx = findHeaderRow(data, [
+      'keyword','priority','pillar','cluster','journey','volume','search volume',
+      'monthly search volume','kd','keyword difficulty','traffic potential',
+      'cpc','organic traffic','current position','current url'
+    ]);
+    const h = data[headerIdx];
     // Detect columns — most-specific patterns first to avoid false matches
     const kwi   = detectCol(h, ['keyword','keywords','query','search term','key phrase','term','phrase','palavra-chave','palabra clave','mot-clé','schlüsselwort']);
-    const voli  = detectCol(h, ['volume','search volume','monthly volume','monthly searches','avg. monthly searches','searches','search vol','vol.','vol']);
+    const voli  = detectCol(h, ['monthly search volume','search volume','monthly volume','monthly searches','avg. monthly searches','searches','search vol','volume','vol.','vol']);
     const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty','dificuldade','dificultad']);
-    const tpi   = detectCol(h, ['traffic potential','potential traffic','tp','tráfego potencial']);
+    const tpi   = detectCol(h, ['traffic potential at #1','traffic potential','potential traffic','tp','tráfego potencial']);
     const growI = detectCol(h, ['growth %','12 month growth','12mo growth','growth','yoy','crescimento']);
     const foreI = detectCol(h, ['12mo forecast','12 month forecast','forecast','projected','previsão']);
-    const econI = detectCol(h, ['economic impact','economic','revenue impact','value']);
+    const econI = detectCol(h, ['monthly economic impact','economic impact','economic','revenue impact','value']);
     const posI  = detectCol(h, ['avg. position','avg position','average position','current position','position','rank','ranking','posição','posicion']);
-    const compI = detectCol(h, ['competitor','competition','competing url','competitor url']);
+    const compI = detectCol(h, ['best ranking competitor?','best ranking competitor','competitor','competition','competing url','competitor url']);
 
     // Fallback: if keyword col not found, use col 0 (most keyword exports put keyword first)
     let kwCol = kwi >= 0 ? kwi : 0;
@@ -934,7 +966,7 @@
       console.log(`[ECB] Keyword col not found by header — value-heuristic picked col ${kwCol}`);
     }
 
-    return data.slice(1)
+    return data.slice(headerIdx + 1)
       .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
       .map(r => ({
         keyword:         String(r[kwCol] || '').trim(),
@@ -952,19 +984,24 @@
   function parseWQA(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
-    const h = data[0];
-    let urli = detectCol(h, ['url','page url','address','page','landing page','full url','top pages','pages','path']);
+    const headerIdx = findHeaderRow(data, [
+      'url','final url','page path','main kw','impressions','sessions',
+      'word count','status code','category','page depth','in sitemap?'
+    ]);
+    const h = data[headerIdx];
+    // Prefer Final URL (canonical) over raw URL when both exist
+    let urli = detectCol(h, ['final url','url','page url','address','page','landing page','full url','top pages','pages','path']);
     const impi = detectCol(h, ['impressions','total impressions','impression']);
     const sesi = detectCol(h, ['sessions','visits','clicks','total clicks','organic sessions','organic clicks']);
     const bki  = detectCol(h, ['referring domains','backlinks','total backlinks','links','rd']);
-    const posi = detectCol(h, ['avg. position','avg position','average position','position','rank','ranking']);
+    const posi = detectCol(h, ['ranking','avg. position','avg position','average position','position','rank']);
     const wci  = detectCol(h, ['word count','words','wordcount','word_count']);
-    const kwi  = detectCol(h, ['top keyword','primary keyword','target keyword','keyword','main keyword','top query']);
+    const kwi  = detectCol(h, ['main kw','top keyword','primary keyword','target keyword','keyword','main keyword','top query','"best"  kw','"best" kw','best kw']);
 
     // If header detection failed, scan the first data rows to find the column whose
     // values look most like URLs (contain '/' or '.') — handles non-English headers.
     if (urli < 0) {
-      const sample = data.slice(1, Math.min(6, data.length));
+      const sample = data.slice(headerIdx + 1, Math.min(headerIdx + 6, data.length));
       let bestCol = 0, bestScore = -1;
       for (let ci = 0; ci < h.length; ci++) {
         const score = sample.reduce((s, r) => {
@@ -979,7 +1016,7 @@
 
     const urlCol = urli;
 
-    return data.slice(1)
+    return data.slice(headerIdx + 1)
       .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
       .map(r => ({
         url:         String(r[urlCol] || '').trim(),
@@ -995,10 +1032,12 @@
   function parseContentAnalysis(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
-    const h = data[0];
-    const urli = detectCol(h, ['url','page url','address','page','landing page']);
+    const headerIdx = findHeaderRow(data, ['url','final url','sections','target keyword','next step','page path']);
+    const h = data[headerIdx];
+    // Prefer Final URL over URL when both present
+    const urli = detectCol(h, ['final url','url','page url','address','page','landing page']);
     const urlCol = urli >= 0 ? urli : 0;
-    return data.slice(1)
+    return data.slice(headerIdx + 1)
       .filter(r => r[urlCol] && String(r[urlCol]).trim().length > 0)
       .map(r => ({ url: String(r[urlCol] || '').trim() }));
   }
@@ -1006,12 +1045,13 @@
   function parsePersonas(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
-    const h = data[0];
+    const headerIdx = findHeaderRow(data, ['persona','persona name','segment','name','audience','jtbd','job to be done','search pattern']);
+    const h = data[headerIdx];
     const namei  = detectCol(h, ['persona name','persona','segment','name','audience']);
     const jtbdi  = detectCol(h, ['job to be done','jtbd','goal','objective','need','pain point']);
     const searchi= detectCol(h, ['search pattern','search queries','search keywords','searches','query','keywords']);
     const nameCol = namei >= 0 ? namei : 0;
-    return data.slice(1)
+    return data.slice(headerIdx + 1)
       .filter(r => r[nameCol] && String(r[nameCol]).trim().length > 0)
       .map(r => ({
         name:   String(r[nameCol] || '').trim(),
@@ -1023,7 +1063,8 @@
   function parseAhrefs(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
-    const h = data[0];
+    const headerIdx = findHeaderRow(data, ['keyword','volume','kd','keyword difficulty','traffic potential','cpc','current position']);
+    const h = data[headerIdx];
     const kwi   = detectCol(h, ['keyword','query','search term']);
     const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
     const voli  = detectCol(h, ['volume','search volume','us volume']);
@@ -1031,7 +1072,7 @@
     const growI = detectCol(h, ['growth %','12mo growth','growth']);
     const foreI = detectCol(h, ['12mo forecast','forecast']);
     const kwCol = kwi >= 0 ? kwi : 0;
-    return data.slice(1)
+    return data.slice(headerIdx + 1)
       .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
       .map(r => ({
         keyword:          String(r[kwCol] || '').trim(),
@@ -1350,7 +1391,8 @@
           month,
           contentType:      isRefresh ? 'Content Refresh' : 'Content Outline',
           status:           'Topic Proposed',
-          liveUrl:          isRefresh ? (opp.url || 'NEW') : 'NEW',
+          // Live URL is where the content will go live once published — blank & editable
+          liveUrl:          '',
           funnelStage:      funnel.stage,
           funnelSub:        funnel.sub,
           topic:            isRefresh
@@ -1367,8 +1409,9 @@
           forecast12mo:     opp.forecast          ?? '',
           deliverableType:  inferDeliverable(opp.type, opp.keyword, opp.volume),
           rationale:        buildRationale(opp, seasonalAssignments.has(mi) ? mi : null, seasonMon),
+          // Preserve refresh-source URL in notes (Live URL is for published content)
           notes:            isRefresh
-                              ? `Impressions: ${fmtVol(opp.impressions)} | Sessions: ${fmtVol(opp.sessions)} | Backlinks: ${opp.backlinks}`
+                              ? `Source: ${opp.url || '—'} | Impressions: ${fmtVol(opp.impressions)} | Sessions: ${fmtVol(opp.sessions)} | Backlinks: ${opp.backlinks}`
                               : 'Internal link to: [update with existing URLs]'
         });
       }
@@ -1381,7 +1424,7 @@
       calendar.push({
         id: uid(), priority: priority++,
         month: padMonths[mIdx] || padMonths[padMonths.length - 1],
-        contentType: 'Content Outline', status: 'Topic Proposed', liveUrl: 'NEW',
+        contentType: 'Content Outline', status: 'Topic Proposed', liveUrl: '',
         funnelStage: 'TOFU', funnelSub: 'Awareness',
         topic: '', targetKeyword: '', kd: '', volume: '', currentPosition: '',
         painPoint: '', trafficPotential: '', growth12mo: '', forecast12mo: '',
@@ -1424,7 +1467,7 @@
         id: uid(), priority: i+1, month,
         contentType:     isRefresh ? 'Content Refresh' : 'Content Outline',
         status:          'Topic Proposed',
-        liveUrl:         isRefresh ? r.kw : 'NEW',
+        liveUrl:         '',
         funnelStage:     r.funnel, funnelSub: r.sub,
         topic: isRefresh
           ? `Refresh: ${r.kw.split('/').pop()?.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) || r.kw}`
@@ -1673,7 +1716,7 @@
     const funnelStages = ['TOFU','MOFU','BOFU'];
 
     const totalVol = all.reduce((s,r)=>s+(parseInt(r.volume)||0),0);
-    const newCount = all.filter(r=>r.liveUrl==='NEW').length;
+    const newCount = all.filter(r=>r.contentType==='Content Outline' || r.contentType==='AI Generated Content').length;
     const refreshCount = all.filter(r=>r.contentType==='Content Refresh').length;
     const publishedCount = all.filter(r=>r.status==='Content Published').length;
 
@@ -1796,10 +1839,6 @@
     const funnelSubs   = { TOFU:['Awareness','Interest'], MOFU:['Consideration','Intent'], BOFU:['Decision','Conversion'] };
     const months       = getMonthRange(state.client.startMonth, state.client.numMonths);
 
-    const urlDisplay = row.liveUrl === 'NEW'
-      ? `<span class="url-new">NEW</span>`
-      : `<a href="${escapeHtml(row.liveUrl)}" class="url-cell" target="_blank" title="${escapeHtml(row.liveUrl)}">${escapeHtml(row.liveUrl.replace(/^https?:\/\/[^/]+/,'').substring(0,25) || row.liveUrl.substring(0,25))}…</a>`;
-
     return `<tr data-row-id="${id}">
       <td class="col-priority"><span class="priority-num">${row.priority}</span></td>
 
@@ -1823,8 +1862,9 @@
 
       <td class="col-url">
         <span class="editable" contenteditable="true"
+          data-placeholder="Paste URL when published"
           onblur="updateRow('${id}','liveUrl',this.textContent.trim())"
-          data-field="liveUrl">${escapeHtml(row.liveUrl)}</span>
+          data-field="liveUrl">${escapeHtml(row.liveUrl || '')}</span>
       </td>
 
       <td class="col-funnel">
@@ -2086,7 +2126,7 @@
       month: lastMonth,
       contentType: 'Content Outline',
       status: 'Topic Proposed',
-      liveUrl: 'NEW',
+      liveUrl: '',
       funnelStage: 'TOFU', funnelSub: 'Awareness',
       topic: '', targetKeyword: '',
       kd: '', volume: '', currentPosition: '',
