@@ -1063,14 +1063,17 @@
   function parseAhrefs(csvText) {
     const { data } = Papa.parse(csvText, { skipEmptyLines: true });
     if (data.length < 2) return [];
-    const headerIdx = findHeaderRow(data, ['keyword','volume','kd','keyword difficulty','traffic potential','cpc','current position']);
+    const headerIdx = findHeaderRow(data, ['keyword','volume','kd','keyword difficulty','traffic potential','cpc','current position','current url','organic traffic','country']);
     const h = data[headerIdx];
     const kwi   = detectCol(h, ['keyword','query','search term']);
     const kdi   = detectCol(h, ['keyword difficulty','kd (us)','us kd','kd','difficulty']);
     const voli  = detectCol(h, ['volume','search volume','us volume']);
     const tpi   = detectCol(h, ['traffic potential','tp']);
-    const growI = detectCol(h, ['growth %','12mo growth','growth']);
-    const foreI = detectCol(h, ['12mo forecast','forecast']);
+    const posI  = detectCol(h, ['current position','position','rank','ranking']);
+    const urlI  = detectCol(h, ['current url','url','landing page']);
+    const orgI  = detectCol(h, ['organic traffic','traffic']);
+    const ctyI  = detectCol(h, ['country']);
+    const cpcI  = detectCol(h, ['cpc']);
     const kwCol = kwi >= 0 ? kwi : 0;
     return data.slice(headerIdx + 1)
       .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
@@ -1079,8 +1082,11 @@
         kd:               cleanNum(kdi   >= 0 ? r[kdi]   : null) ?? 50,
         volume:           cleanNum(voli  >= 0 ? r[voli]  : null) ?? 0,
         trafficPotential: cleanNum(tpi   >= 0 ? r[tpi]   : null) ?? 0,
-        growth:           cleanNum(growI >= 0 ? r[growI] : null) ?? 0,
-        forecast:         cleanNum(foreI >= 0 ? r[foreI] : null) ?? 0
+        currentPosition:  cleanNum(posI  >= 0 ? r[posI]  : null) ?? null,
+        currentUrl:       urlI >= 0 ? String(r[urlI]||'').trim() : '',
+        organicTraffic:   cleanNum(orgI  >= 0 ? r[orgI]  : null) ?? 0,
+        country:          ctyI >= 0 ? String(r[ctyI]||'').trim() : '',
+        cpc:              cleanNum(cpcI  >= 0 ? r[cpcI]  : null) ?? 0
       }));
   }
 
@@ -1218,7 +1224,7 @@
     const kd = parseFloat(opp.kd) || 50;
     const vol = parseInt(opp.volume) || 0;
     if (kd < 30) return `METRIC: Low KD (${kd}) + ${fmtVol(vol)}/mo volume = fastest path to organic wins. Anchor piece for topical cluster.`;
-    if (opp.growth > 20) return `METRIC: +${opp.growth}% growth trend — capture window is now. Negative-forecast lock-in risk if delayed.`;
+    if (vol > 1000 && kd < 50) return `METRIC: ${fmtVol(vol)}/mo volume at KD ${kd} — strong ROI opportunity vs. competitive landscape.`;
     return `STRATEGY: Fills identified keyword gap where competitors rank but client does not. Supports cluster authority building.`;
   }
 
@@ -1247,79 +1253,70 @@
       numMonths, contentPerMonth, startMonth
     });
 
-    /* ── 1. Merge Ahrefs enrichment into keyword gap data ── */
-    const mergedKeywords = keywords.map(kw => {
-      const ah = ahrefs.find(a => a.keyword.toLowerCase() === kw.keyword.toLowerCase());
-      if (!ah) return kw;
-      return {
-        ...kw,
-        kd:              ah.kd              ?? kw.kd,
-        volume:          ah.volume          || kw.volume,
-        trafficPotential:ah.trafficPotential|| kw.trafficPotential,
-        growth:          ah.growth          ?? kw.growth,
-        forecast:        ah.forecast        ?? kw.forecast
-      };
-    });
+    /* ── 1. Ahrefs is now the SOLE source of calendar topics.
+       Every row in the editorial calendar must come from an Ahrefs keyword.
+       WQA + Content Analysis are used only to classify topics as refresh vs new. ── */
+    if (ahrefs.length === 0) {
+      console.warn('[ECB] No Ahrefs data uploaded — calendar topics cannot be generated.');
+    }
 
-    /* ── 2. Build keyword lookup so refresh rows can inherit metrics ── */
-    const kwLookup = new Map();
-    mergedKeywords.forEach(kw => {
-      if (kw.keyword) kwLookup.set(kw.keyword.toLowerCase(), kw);
-    });
-
+    /* ── 2. Index WQA + Content Analysis URLs for refresh classification ── */
     const offLimits = new Set(contentAnalysis.map(r => normalizeUrl(r.url)));
+    const wqaLookup = new Map();
+    wqa.forEach(u => { if (u.url) wqaLookup.set(normalizeUrl(u.url), u); });
 
-    /* ── 3. Score new-content opportunities ──
-       NOTE: We intentionally do NOT filter by hasCannibalizing here.
-       Keyword gap CSVs already represent terms the client doesn't rank for;
-       false-positive overlap with URL slugs was silently eliminating all candidates.
-    ── */
-    const newOpps = mergedKeywords
+    /* ── 3. Dedupe Ahrefs keywords (same keyword often appears per country).
+       Keep the row with the highest organic traffic for each keyword. ── */
+    const dedupedAhrefs = [];
+    const seenKw = new Map();
+    for (const kw of ahrefs) {
+      const key = (kw.keyword || '').toLowerCase().trim();
+      if (!key) continue;
+      const prev = seenKw.get(key);
+      if (!prev || (kw.organicTraffic || 0) > (prev.organicTraffic || 0)) {
+        seenKw.set(key, kw);
+      }
+    }
+    seenKw.forEach(v => dedupedAhrefs.push(v));
+
+    /* ── 4. Classify each Ahrefs keyword as 'refresh' (has a ranking page in WQA)
+       or 'new' (no current URL, or current URL is not in WQA). ── */
+    const allOpps = dedupedAhrefs
       .filter(kw => kw.keyword && kw.keyword.length > 1)
-      .map(kw => ({
-        type: 'new', ...kw,
-        score:     scoreNewContent(kw),
-        seasonMon: detectSeasonality(kw.keyword)
-      }))
-      .sort((a, b) => b.score - a.score);
-
-    console.log('[ECB] newOpps after filter:', newOpps.length,
-      newOpps.slice(0,3).map(o => o.keyword));
-
-    /* ── 4. Score refresh opportunities & cross-reference keyword metrics ── */
-    const refreshOpps = wqa
-      .filter(u => !offLimits.has(normalizeUrl(u.url)))
-      .filter(u => u.url && u.url.length > 0)
-      .map(u => {
-        // Prefer topKeyword from WQA; fall back to readable URL slug
-        const targetKw = (u.topKeyword && u.topKeyword.length > 0)
-          ? u.topKeyword
-          : slugToKeyword(u.url);
-
-        // Cross-reference keyword data so refresh rows carry KD/Volume/TP/Growth/Forecast
-        const kwData = kwLookup.get(targetKw.toLowerCase());
-
+      .filter(kw => !kw.currentUrl || !offLimits.has(normalizeUrl(kw.currentUrl)))
+      .map(kw => {
+        const normUrl = kw.currentUrl ? normalizeUrl(kw.currentUrl) : '';
+        const wqaData = normUrl ? wqaLookup.get(normUrl) : null;
+        const isRefresh = !!(normUrl && (wqaData || kw.currentPosition));
         return {
-          type:            'refresh',
-          ...u,
-          keyword:         targetKw,
-          score:           scoreRefresh(u),
-          // Keyword metrics from cross-reference (undefined if no match — show blank, not 0)
-          kd:              kwData?.kd,
-          volume:          kwData?.volume,
-          trafficPotential:kwData?.trafficPotential,
-          growth:          kwData?.growth,
-          forecast:        kwData?.forecast
+          type:             isRefresh ? 'refresh' : 'new',
+          ...kw,
+          url:              kw.currentUrl,
+          position:         kw.currentPosition,
+          impressions:      wqaData?.impressions ?? 0,
+          sessions:         wqaData?.sessions    ?? 0,
+          backlinks:        wqaData?.backlinks   ?? 0,
+          score: isRefresh
+            ? scoreRefresh({
+                impressions: wqaData?.impressions ?? Math.max(0, (kw.organicTraffic || 0) * 5),
+                sessions:    wqaData?.sessions    ?? (kw.organicTraffic || 0),
+                position:    kw.currentPosition  ?? 100,
+                backlinks:   wqaData?.backlinks   ?? 0
+              })
+            : scoreNewContent(kw),
+          seasonMon: detectSeasonality(kw.keyword)
         };
-      })
-      .sort((a, b) => b.score - a.score);
+      });
 
-    console.log('[ECB] refreshOpps after filter:', refreshOpps.length,
-      refreshOpps.slice(0,3).map(o => o.url));
+    const newOpps     = allOpps.filter(o => o.type === 'new').sort((a, b) => b.score - a.score);
+    const refreshOpps = allOpps.filter(o => o.type === 'refresh').sort((a, b) => b.score - a.score);
+
+    console.log('[ECB] Ahrefs deduped:', dedupedAhrefs.length,
+      '→ newOpps:', newOpps.length, '/ refreshOpps:', refreshOpps.length);
 
     if (newOpps.length === 0 && refreshOpps.length === 0) {
-      console.warn('[ECB] Both opportunity pools are empty — calendar will be blank. ' +
-        'Check that keyword/WQA CSVs have the correct column headers.');
+      console.warn('[ECB] No Ahrefs opportunities — calendar will be blank. ' +
+        'Verify Ahrefs CSV has Keyword + Current position + Current URL columns.');
     }
 
     /* ── 5. Pre-assign seasonal new-content keywords to target month slots ── */
@@ -1402,11 +1399,10 @@
           // Use ?? so numeric 0 is preserved; undefined → '' (truly unknown)
           kd:               opp.kd              ?? '',
           volume:           opp.volume           ?? '',
-          currentPosition:  isRefresh ? (opp.position ?? '') : (opp.currentPosition ?? ''),
+          // Position always comes from Ahrefs Current position (single source of truth)
+          currentPosition:  opp.currentPosition  ?? '',
           painPoint:        inferPainPoint(opp.keyword, personas),
           trafficPotential: opp.trafficPotential ?? '',
-          growth12mo:       opp.growth           ?? '',
-          forecast12mo:     opp.forecast          ?? '',
           deliverableType:  inferDeliverable(opp.type, opp.keyword, opp.volume),
           rationale:        buildRationale(opp, seasonalAssignments.has(mi) ? mi : null, seasonMon),
           // Preserve refresh-source URL in notes (Live URL is for published content)
@@ -1427,7 +1423,7 @@
         contentType: 'Content Outline', status: 'Topic Proposed', liveUrl: '',
         funnelStage: 'TOFU', funnelSub: 'Awareness',
         topic: '', targetKeyword: '', kd: '', volume: '', currentPosition: '',
-        painPoint: '', trafficPotential: '', growth12mo: '', forecast12mo: '',
+        painPoint: '', trafficPotential: '',
         deliverableType: 'New Utility Post (~1,500 words)',
         rationale: 'STRATEGY: ', notes: ''
       });
@@ -1478,8 +1474,6 @@
         currentPosition: r.pos || '',
         painPoint:       inferPainPoint(r.kw, []),
         trafficPotential:r.tp || '',
-        growth12mo:      r.gr || '',
-        forecast12mo:    r.fore || '',
         deliverableType: inferDeliverable(r.type, r.kw, r.vol),
         rationale: isRefresh
           ? (r.pos >= 11 && r.pos <= 20
@@ -1676,14 +1670,12 @@
       </div>
 
       <div class="card">
-        <div class="card-title"><span class="card-title-icon">🔍</span> Ahrefs Export</div>
+        <div class="card-title"><span class="card-title-icon">🔍</span> Ahrefs Export <span style="color:var(--pink);font-size:0.7rem;margin-left:0.5rem">REQUIRED — sole source of calendar topics</span></div>
         <div class="upload-grid">
-          <div class="upload-optional">
-            ${zone('ahrefs', 'Ahrefs Keyword Export', 'CSV: keyword, US KD, volume, traffic potential, growth %, 12mo forecast', false, '📡')}
-          </div>
+          ${zone('ahrefs', 'Ahrefs Organic Keywords Export', 'CSV: Keyword, Volume, KD, Current position, Current URL, Organic traffic', true, '📡')}
         </div>
         <div class="info-box">
-          <strong>Tip:</strong> Upload the Ahrefs export to enrich keyword data with traffic potential and growth forecasts. Without it, the engine uses data from the Keyword Gap Analysis only.
+          <strong>Every calendar topic is sourced from this file.</strong> Position values shown in the calendar come from the Ahrefs <code>Current position</code> column. Without this export, no calendar topics can be generated.
         </div>
       </div>
 
@@ -1742,8 +1734,6 @@
               <th class="col-position">Position</th>
               <th class="col-pain">Pain Point</th>
               <th class="col-tp">Traffic Pot.</th>
-              <th class="col-growth">Growth 12mo</th>
-              <th class="col-forecast">Forecast</th>
               <th class="col-deliverable">Deliverable</th>
               <th class="col-rationale">Priority Rationale</th>
               <th class="col-notes">Notes</th>
@@ -1752,7 +1742,7 @@
             <tbody id="cal-tbody">
               ${cal.map(row => renderRow(row)).join('')}
               <tr class="add-row-tr">
-                <td colspan="19">
+                <td colspan="17">
                   <button class="add-row-btn" onclick="handleAddRow()">+ Add Row</button>
                 </td>
               </tr>
@@ -1909,16 +1899,6 @@
       <td class="col-tp" style="text-align:right">
         <span class="editable" contenteditable="true" style="text-align:right"
           onblur="updateRow('${id}','trafficPotential',this.textContent.trim())">${fmtVol(row.trafficPotential)}</span>
-      </td>
-
-      <td class="col-growth" style="text-align:right">
-        <span class="editable" contenteditable="true" style="text-align:right"
-          onblur="updateRow('${id}','growth12mo',this.textContent.trim())">${growthHtml(row.growth12mo)}</span>
-      </td>
-
-      <td class="col-forecast" style="text-align:right">
-        <span class="editable" contenteditable="true" style="text-align:right"
-          onblur="updateRow('${id}','forecast12mo',this.textContent.trim())">${growthHtml(row.forecast12mo)}</span>
       </td>
 
       <td class="col-deliverable">
@@ -2097,8 +2077,13 @@
   }
 
   function handleGenerate() {
-    const hasData = state.parsed.keywords.length > 0 || state.parsed.wqa.length > 0;
-    if (!hasData) {
+    // Ahrefs is now the sole source of calendar topics
+    if (state.parsed.ahrefs.length === 0) {
+      const anyOther = state.parsed.keywords.length > 0 || state.parsed.wqa.length > 0;
+      if (anyOther) {
+        toast('⚠ Ahrefs export is required — all calendar topics are sourced from this file.', 6000);
+        return;
+      }
       handleDemoData();
       return;
     }
@@ -2131,7 +2116,6 @@
       topic: '', targetKeyword: '',
       kd: '', volume: '', currentPosition: '',
       painPoint: '', trafficPotential: '',
-      growth12mo: '', forecast12mo: '',
       deliverableType: 'New Utility Post (~1,500 words)',
       rationale: 'STRATEGY: ',
       notes: ''
@@ -2172,12 +2156,12 @@
   function handleExportCSV() {
     const headers = ['Priority','Month','Content Type','Status','Live URL','Funnel Stage','Funnel Sub',
       'Topic (H1)','Target Keyword','KD','Volume','Current Position','Pain Point',
-      'Traffic Potential','Growth 12mo%','Forecast 12mo','Deliverable Type','Priority Rationale','Notes'];
+      'Traffic Potential','Deliverable Type','Priority Rationale','Notes'];
     const rows = state.calendar.map(r => [
       r.priority, r.month, r.contentType, r.status, r.liveUrl,
       r.funnelStage, r.funnelSub, r.topic, r.targetKeyword,
       r.kd, r.volume, r.currentPosition, r.painPoint,
-      r.trafficPotential, r.growth12mo, r.forecast12mo,
+      r.trafficPotential,
       r.deliverableType, r.rationale, r.notes
     ]);
     const csv = [headers, ...rows].map(r => r.map(c =>
