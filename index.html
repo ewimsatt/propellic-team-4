@@ -482,8 +482,6 @@
     .col-position      { width: 72px;  min-width: 72px;  text-align: center; }
     .col-pain          { width: 155px; min-width: 155px; }
     .col-tp            { width: 80px;  min-width: 80px;  text-align: right; }
-    .col-growth        { width: 75px;  min-width: 75px;  text-align: right; }
-    .col-forecast      { width: 80px;  min-width: 80px;  text-align: right; }
     .col-deliverable   { width: 160px; min-width: 160px; }
     .col-rationale     { width: 220px; min-width: 220px; }
     .col-notes         { width: 200px; min-width: 200px; }
@@ -653,9 +651,6 @@
     .kd-low  { background: rgba(16,185,129,0.15); color: #34D399; }
     .kd-mid  { background: rgba(245,158,11,0.15); color: #FCD34D; }
     .kd-high { background: rgba(239,68,68,0.15);  color: #F87171; }
-
-    .growth-positive { color: #34D399; font-weight: 600; }
-    .growth-negative { color: #F87171; font-weight: 600; }
 
     /* ── Stats Bar ────────────────────────────────────── */
     .stats-bar {
@@ -1074,7 +1069,16 @@
     const orgI  = detectCol(h, ['organic traffic','traffic']);
     const ctyI  = detectCol(h, ['country']);
     const cpcI  = detectCol(h, ['cpc']);
+    // Ahrefs intent classifications — boolean columns we use for funnel mapping
+    const brdI  = detectCol(h, ['branded']);
+    const locI  = detectCol(h, ['local']);
+    const navI  = detectCol(h, ['navigational']);
+    const infI  = detectCol(h, ['informational']);
+    const comI  = detectCol(h, ['commercial']);
+    const trnI  = detectCol(h, ['transactional']);
+    const entI  = detectCol(h, ['entities','entity']);
     const kwCol = kwi >= 0 ? kwi : 0;
+    const truthy = v => /^(true|yes|1)$/i.test(String(v || '').trim());
     return data.slice(headerIdx + 1)
       .filter(r => r[kwCol] && String(r[kwCol]).trim().length > 0)
       .map(r => ({
@@ -1086,7 +1090,14 @@
         currentUrl:       urlI >= 0 ? String(r[urlI]||'').trim() : '',
         organicTraffic:   cleanNum(orgI  >= 0 ? r[orgI]  : null) ?? 0,
         country:          ctyI >= 0 ? String(r[ctyI]||'').trim() : '',
-        cpc:              cleanNum(cpcI  >= 0 ? r[cpcI]  : null) ?? 0
+        cpc:              cleanNum(cpcI  >= 0 ? r[cpcI]  : null) ?? 0,
+        branded:          brdI >= 0 ? truthy(r[brdI]) : false,
+        local:            locI >= 0 ? truthy(r[locI]) : false,
+        navigational:     navI >= 0 ? truthy(r[navI]) : false,
+        informational:    infI >= 0 ? truthy(r[infI]) : false,
+        commercial:       comI >= 0 ? truthy(r[comI]) : false,
+        transactional:    trnI >= 0 ? truthy(r[trnI]) : false,
+        entities:         entI >= 0 ? String(r[entI]||'').trim() : ''
       }));
   }
 
@@ -1132,10 +1143,30 @@
     return null;
   }
 
-  function inferFunnel(keyword) {
-    const kl = keyword.toLowerCase();
-    const bofu = ['best','vs','compare','review','buy','book','cost','price','cheap','deal','hire','agency','service'];
-    const mofu = ['how to','guide','tips','ideas','plan','itinerary','things to do','what to','when to','places'];
+  /* Funnel mapping uses Ahrefs intent booleans when available — these are far more
+     reliable than keyword-text heuristics, which break on non-English terms,
+     branded queries, and pure location/topic searches. Falls back to text rules
+     when intent fields are missing (e.g. for non-Ahrefs keyword sources). */
+  function inferFunnel(opp) {
+    const kw = typeof opp === 'string' ? opp : (opp?.keyword || '');
+    const kl = kw.toLowerCase();
+    const o  = typeof opp === 'object' ? opp : null;
+
+    // PRIMARY: use Ahrefs intent classifications (boolean fields)
+    if (o && (o.transactional || o.commercial || o.navigational || o.branded || o.informational || o.local)) {
+      if (o.transactional)               return { stage:'BOFU', sub:'Conversion' };
+      if (o.commercial)                  return { stage:'BOFU', sub:'Decision' };
+      if (o.navigational && o.branded)   return { stage:'BOFU', sub:'Decision' };
+      if (o.navigational)                return { stage:'BOFU', sub:'Decision' };
+      if (o.branded)                     return { stage:'MOFU', sub:'Intent' };
+      if (o.local && o.informational)    return { stage:'MOFU', sub:'Consideration' };
+      if (o.local)                       return { stage:'MOFU', sub:'Intent' };
+      if (o.informational)               return { stage:'TOFU', sub:'Interest' };
+    }
+
+    // FALLBACK: text-based heuristics (legacy path for non-Ahrefs sources)
+    const bofu = ['best','vs','compare','review','buy','book','cost','price','cheap','deal','hire','agency','service','aluguer','aluga','reservar'];
+    const mofu = ['how to','guide','tips','ideas','plan','itinerary','things to do','what to','when to','places','tour','tours','visit','visiting','where','near me'];
     if (bofu.some(t => kl.includes(t))) return { stage:'BOFU', sub:'Decision' };
     if (mofu.some(t => kl.includes(t))) return { stage:'MOFU', sub:'Consideration' };
     return { stage:'TOFU', sub:'Awareness' };
@@ -1153,21 +1184,52 @@
     return 'New Utility Post (~1,500 words)';
   }
 
-  function inferPainPoint(keyword, personas) {
-    const kl = keyword.toLowerCase();
-    if (personas.length > 0) {
+  /* Map keyword to user pain point.
+     Priority: persona match → Ahrefs intent + entities → text heuristics → default. */
+  function inferPainPoint(opp, personas) {
+    const kw = typeof opp === 'string' ? opp : (opp?.keyword || '');
+    const kl = kw.toLowerCase();
+    const o  = typeof opp === 'object' ? opp : null;
+    const ent = (o?.entities || '').toLowerCase();
+
+    // 1. Persona JTBD match (uploaded personas always win)
+    if (personas && personas.length > 0) {
       for (const p of personas) {
-        if (p.search && kl.split(' ').some(w => p.search.toLowerCase().includes(w))) {
+        if (p.search && kl.split(' ').some(w => w.length > 2 && p.search.toLowerCase().includes(w))) {
           return p.jtbd || 'Persona: ' + p.name;
         }
       }
     }
+
+    // 2. Ahrefs intent-driven pain points
+    if (o) {
+      if (o.transactional)              return 'Ready to book — needs frictionless purchase path';
+      if (o.commercial && o.branded)    return 'Brand-aware buyer comparing options';
+      if (o.commercial)                 return 'Evaluating providers — needs trust signals & differentiation';
+      if (o.navigational && o.branded)  return 'Returning visitor seeking known brand resources';
+      if (o.navigational)               return 'Direct intent — needs clear wayfinding';
+      if (o.branded && o.informational) return 'Researching brand & offering credibility';
+      if (o.local && o.informational)   return 'Planning a local experience — needs neighbourhood context';
+      if (o.local)                      return 'Location-specific intent — needs proximity & logistics info';
+    }
+
+    // 3. Entity-driven (location, brand, etc.)
+    if (ent.includes('location')) return 'Destination research — needs travel guidance & local insight';
+    if (ent.includes('organization') || ent.includes('brand')) return 'Brand-comparison research';
+
+    // 4. Text-based heuristics (legacy fallback)
     if (kl.includes('best')) return 'Finding top-quality options';
-    if (kl.includes('cost') || kl.includes('price')) return 'Budget planning & transparency';
+    if (kl.includes('cost') || kl.includes('price') || kl.includes('cheap')) return 'Budget planning & transparency';
     if (kl.includes('guide') || kl.includes('how')) return 'Research & planning confidence';
-    if (kl.includes('itinerary')) return 'Trip planning structure';
+    if (kl.includes('itinerary') || kl.includes('trip') || kl.includes('plan')) return 'Trip planning structure';
     if (kl.includes('safe') || kl.includes('tips')) return 'Risk reduction & travel safety';
-    return 'Information discovery';
+    if (kl.includes('tour') || kl.includes('experience')) return 'Curated experience discovery';
+    if (kl.includes('vs') || kl.includes('compare') || kl.includes('review')) return 'Decision validation through comparison';
+    if (kl.includes('what') || kl.includes('when') || kl.includes('where') || kl.includes('why')) return 'Foundational topic understanding';
+
+    // 5. Informational default is more specific than 'Information discovery'
+    if (o?.informational) return 'Top-of-funnel knowledge gathering';
+    return 'Awareness-stage discovery';
   }
 
   function scoreNewContent(kw) {
@@ -1191,15 +1253,6 @@
     const blBonus = bl * 80;
     const negForecastPenalty = 0; // flag but don't fully penalize
     return gap + strikingBonus + blBonus - negForecastPenalty;
-  }
-
-  function hasCannibalizing(keyword, allUrls) {
-    const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    if (words.length === 0) return false;
-    return allUrls.some(url => {
-      const slug = url.toLowerCase().replace(/[-_/]/g,' ');
-      return words.filter(w => slug.includes(w)).length >= Math.ceil(words.length * 0.7);
-    });
   }
 
   function buildRationale(opp, slotIdx, seasonMon) {
@@ -1279,15 +1332,22 @@
     }
     seenKw.forEach(v => dedupedAhrefs.push(v));
 
-    /* ── 4. Classify each Ahrefs keyword as 'refresh' (has a ranking page in WQA)
-       or 'new' (no current URL, or current URL is not in WQA). ── */
+    /* ── 4. Classify each Ahrefs keyword.
+       REFRESH: current URL exists in the WQA Aggregation — we have analytics on
+                that tracked page, so an optimisation refresh has measurable ROI.
+       NEW:     current URL is not in WQA (e.g. lives on a subdomain like
+                events.boostportugal.com, or no page at all) — better treated as a
+                net-new content opportunity to consolidate on the main domain.
+       Note: every Ahrefs Organic row has a currentUrl, so a flat "url-present →
+       refresh" rule would classify the entire calendar as refresh — that's why
+       we key off the WQA match instead. ── */
     const allOpps = dedupedAhrefs
       .filter(kw => kw.keyword && kw.keyword.length > 1)
       .filter(kw => !kw.currentUrl || !offLimits.has(normalizeUrl(kw.currentUrl)))
       .map(kw => {
         const normUrl = kw.currentUrl ? normalizeUrl(kw.currentUrl) : '';
         const wqaData = normUrl ? wqaLookup.get(normUrl) : null;
-        const isRefresh = !!(normUrl && (wqaData || kw.currentPosition));
+        const isRefresh = !!wqaData;
         return {
           type:             isRefresh ? 'refresh' : 'new',
           ...kw,
@@ -1298,10 +1358,10 @@
           backlinks:        wqaData?.backlinks   ?? 0,
           score: isRefresh
             ? scoreRefresh({
-                impressions: wqaData?.impressions ?? Math.max(0, (kw.organicTraffic || 0) * 5),
-                sessions:    wqaData?.sessions    ?? (kw.organicTraffic || 0),
-                position:    kw.currentPosition  ?? 100,
-                backlinks:   wqaData?.backlinks   ?? 0
+                impressions: wqaData.impressions,
+                sessions:    wqaData.sessions,
+                position:    kw.currentPosition ?? 100,
+                backlinks:   wqaData.backlinks
               })
             : scoreNewContent(kw),
           seasonMon: detectSeasonality(kw.keyword)
@@ -1379,7 +1439,7 @@
       /* Push assembled month rows to calendar */
       for (const opp of monthBuf) {
         const seasonMon = opp.seasonMon ? (MONTH_IDX[opp.seasonMon] ?? null) : null;
-        const funnel    = inferFunnel(opp.keyword);
+        const funnel    = inferFunnel(opp);
         const isRefresh = opp.type === 'refresh';
 
         calendar.push({
@@ -1401,7 +1461,7 @@
           volume:           opp.volume           ?? '',
           // Position always comes from Ahrefs Current position (single source of truth)
           currentPosition:  opp.currentPosition  ?? '',
-          painPoint:        inferPainPoint(opp.keyword, personas),
+          painPoint:        inferPainPoint(opp, personas),
           trafficPotential: opp.trafficPotential ?? '',
           deliverableType:  inferDeliverable(opp.type, opp.keyword, opp.volume),
           rationale:        buildRationale(opp, seasonalAssignments.has(mi) ? mi : null, seasonMon),
@@ -1533,14 +1593,6 @@
     return `<span class="kd-chip ${cls}">${n}</span>`;
   }
 
-  function growthHtml(val) {
-    if (!val && val !== 0) return '—';
-    const n = parseFloat(val);
-    if (isNaN(n)) return '—';
-    const cls = n >= 0 ? 'growth-positive' : 'growth-negative';
-    return `<span class="${cls}">${n>0?'+':''}${n.toFixed(0)}%</span>`;
-  }
-
   /* ════════════════════════════════════════════════════
      RENDER — STEP 1
   ════════════════════════════════════════════════════ */
@@ -1632,7 +1684,7 @@
         } else if (key === 'wqa') {
           preview = `<em>${escapeHtml(first.url || '—')}</em> · Pos ${first.position ?? '—'} · Impr ${first.impressions ?? '—'}`;
         } else if (key === 'ahrefs') {
-          preview = `<em>${escapeHtml(first.keyword || '—')}</em> · KD ${first.kd ?? '—'} · Vol ${first.volume ?? '—'}`;
+          preview = `<em>${escapeHtml(first.keyword || '—')}</em> · KD ${first.kd ?? '—'} · Vol ${first.volume ?? '—'} · Pos ${first.currentPosition ?? '—'}`;
         } else if (key === 'personas') {
           preview = `<em>${escapeHtml(first.name || '—')}</em>`;
         }
