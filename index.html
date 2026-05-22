@@ -482,8 +482,6 @@
     .col-position      { width: 72px;  min-width: 72px;  text-align: center; }
     .col-pain          { width: 155px; min-width: 155px; }
     .col-tp            { width: 80px;  min-width: 80px;  text-align: right; }
-    .col-growth        { width: 75px;  min-width: 75px;  text-align: right; }
-    .col-forecast      { width: 80px;  min-width: 80px;  text-align: right; }
     .col-deliverable   { width: 160px; min-width: 160px; }
     .col-rationale     { width: 220px; min-width: 220px; }
     .col-notes         { width: 200px; min-width: 200px; }
@@ -653,9 +651,6 @@
     .kd-low  { background: rgba(16,185,129,0.15); color: #34D399; }
     .kd-mid  { background: rgba(245,158,11,0.15); color: #FCD34D; }
     .kd-high { background: rgba(239,68,68,0.15);  color: #F87171; }
-
-    .growth-positive { color: #34D399; font-weight: 600; }
-    .growth-negative { color: #F87171; font-weight: 600; }
 
     /* ── Stats Bar ────────────────────────────────────── */
     .stats-bar {
@@ -1193,15 +1188,6 @@
     return gap + strikingBonus + blBonus - negForecastPenalty;
   }
 
-  function hasCannibalizing(keyword, allUrls) {
-    const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    if (words.length === 0) return false;
-    return allUrls.some(url => {
-      const slug = url.toLowerCase().replace(/[-_/]/g,' ');
-      return words.filter(w => slug.includes(w)).length >= Math.ceil(words.length * 0.7);
-    });
-  }
-
   function buildRationale(opp, slotIdx, seasonMon) {
     if (opp.type === 'refresh') {
       const pos = opp.position;
@@ -1279,15 +1265,22 @@
     }
     seenKw.forEach(v => dedupedAhrefs.push(v));
 
-    /* ── 4. Classify each Ahrefs keyword as 'refresh' (has a ranking page in WQA)
-       or 'new' (no current URL, or current URL is not in WQA). ── */
+    /* ── 4. Classify each Ahrefs keyword.
+       REFRESH: current URL exists in the WQA Aggregation — we have analytics on
+                that tracked page, so an optimisation refresh has measurable ROI.
+       NEW:     current URL is not in WQA (e.g. lives on a subdomain like
+                events.boostportugal.com, or no page at all) — better treated as a
+                net-new content opportunity to consolidate on the main domain.
+       Note: every Ahrefs Organic row has a currentUrl, so a flat "url-present →
+       refresh" rule would classify the entire calendar as refresh — that's why
+       we key off the WQA match instead. ── */
     const allOpps = dedupedAhrefs
       .filter(kw => kw.keyword && kw.keyword.length > 1)
       .filter(kw => !kw.currentUrl || !offLimits.has(normalizeUrl(kw.currentUrl)))
       .map(kw => {
         const normUrl = kw.currentUrl ? normalizeUrl(kw.currentUrl) : '';
         const wqaData = normUrl ? wqaLookup.get(normUrl) : null;
-        const isRefresh = !!(normUrl && (wqaData || kw.currentPosition));
+        const isRefresh = !!wqaData;
         return {
           type:             isRefresh ? 'refresh' : 'new',
           ...kw,
@@ -1298,10 +1291,10 @@
           backlinks:        wqaData?.backlinks   ?? 0,
           score: isRefresh
             ? scoreRefresh({
-                impressions: wqaData?.impressions ?? Math.max(0, (kw.organicTraffic || 0) * 5),
-                sessions:    wqaData?.sessions    ?? (kw.organicTraffic || 0),
-                position:    kw.currentPosition  ?? 100,
-                backlinks:   wqaData?.backlinks   ?? 0
+                impressions: wqaData.impressions,
+                sessions:    wqaData.sessions,
+                position:    kw.currentPosition ?? 100,
+                backlinks:   wqaData.backlinks
               })
             : scoreNewContent(kw),
           seasonMon: detectSeasonality(kw.keyword)
@@ -1533,14 +1526,6 @@
     return `<span class="kd-chip ${cls}">${n}</span>`;
   }
 
-  function growthHtml(val) {
-    if (!val && val !== 0) return '—';
-    const n = parseFloat(val);
-    if (isNaN(n)) return '—';
-    const cls = n >= 0 ? 'growth-positive' : 'growth-negative';
-    return `<span class="${cls}">${n>0?'+':''}${n.toFixed(0)}%</span>`;
-  }
-
   /* ════════════════════════════════════════════════════
      RENDER — STEP 1
   ════════════════════════════════════════════════════ */
@@ -1632,7 +1617,7 @@
         } else if (key === 'wqa') {
           preview = `<em>${escapeHtml(first.url || '—')}</em> · Pos ${first.position ?? '—'} · Impr ${first.impressions ?? '—'}`;
         } else if (key === 'ahrefs') {
-          preview = `<em>${escapeHtml(first.keyword || '—')}</em> · KD ${first.kd ?? '—'} · Vol ${first.volume ?? '—'}`;
+          preview = `<em>${escapeHtml(first.keyword || '—')}</em> · KD ${first.kd ?? '—'} · Vol ${first.volume ?? '—'} · Pos ${first.currentPosition ?? '—'}`;
         } else if (key === 'personas') {
           preview = `<em>${escapeHtml(first.name || '—')}</em>`;
         }
